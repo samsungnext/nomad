@@ -5,7 +5,7 @@ import (
 	"net"
 
 	log "github.com/hashicorp/go-hclog"
-	sockaddr "github.com/hashicorp/go-sockaddr"
+	sockaddr "github.com/iqoqo/go-sockaddr"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/nomad/structs"
 )

@@ -17,7 +17,7 @@ import (
 
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hashicorp/consul/lib/freeport"
-	sockaddr "github.com/hashicorp/go-sockaddr"
+	sockaddr "github.com/iqoqo/go-sockaddr"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/driver/env"
