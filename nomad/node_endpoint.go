@@ -90,10 +90,20 @@ func (n *Node) Register(args *structs.NodeRegisterRequest, reply *structs.NodeUp
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "register"}, time.Now())
 
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
+
 	// Validate the arguments
 	if args.Node == nil {
 		return fmt.Errorf("missing node for client registration")
 	}
+	// if args.WriteRequest.AuthToken == nil {
+	// 	return fmt.Errorf("missing write request AuthToken")
+	// }
 	if args.Node.ID == "" {
 		return fmt.Errorf("missing node ID for client registration")
 	}
@@ -253,10 +263,10 @@ func (n *Node) Deregister(args *structs.NodeDeregisterRequest, reply *structs.No
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "deregister"}, time.Now())
 
-	// Check node permissions
+	// Check noderpc write permissions
 	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
 		return err
-	} else if aclObj != nil && !aclObj.AllowNodeWrite() {
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
 		return structs.ErrPermissionDenied
 	}
 
@@ -332,6 +342,13 @@ func (n *Node) UpdateStatus(args *structs.NodeUpdateStatusRequest, reply *struct
 
 		return err
 	}
+
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
+
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_status"}, time.Now())
 
 	// Verify the arguments
@@ -456,6 +473,14 @@ func (n *Node) UpdateDrain(args *structs.NodeUpdateDrainRequest,
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_drain"}, time.Now())
 
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
+
+
 	// Check node write permissions
 	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
 		return err
@@ -536,6 +561,7 @@ func (n *Node) UpdateDrain(args *structs.NodeUpdateDrainRequest,
 	return nil
 }
 
+// TODO: look how to set Eligibility false by default on connnect
 // UpdateEligibility is used to update the scheduling eligibility of a node
 func (n *Node) UpdateEligibility(args *structs.NodeUpdateEligibilityRequest,
 	reply *structs.NodeEligibilityUpdateResponse) error {
@@ -543,6 +569,13 @@ func (n *Node) UpdateEligibility(args *structs.NodeUpdateEligibilityRequest,
 		return err
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_eligibility"}, time.Now())
+
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
 
 	// Check node write permissions
 	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
@@ -990,6 +1023,13 @@ func (n *Node) UpdateAlloc(args *structs.AllocUpdateRequest, reply *structs.Gene
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_alloc"}, time.Now())
 
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
+
 	// Ensure at least a single alloc
 	if len(args.Alloc) == 0 {
 		return fmt.Errorf("must update at least one allocation")
@@ -1328,6 +1368,13 @@ func (n *Node) DeriveVaultToken(args *structs.DeriveVaultTokenRequest,
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "derive_vault_token"}, time.Now())
 
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
+
 	// Verify the arguments
 	if args.NodeID == "" {
 		setErr(fmt.Errorf("missing node ID"), false)
@@ -1533,6 +1580,13 @@ func (n *Node) EmitEvents(args *structs.EmitNodeEventsRequest, reply *structs.Em
 		return err
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "emit_events"}, time.Now())
+
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
 
 	if len(args.NodeEvents) == 0 {
 		return fmt.Errorf("no node events given")

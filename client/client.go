@@ -925,7 +925,7 @@ func (c *Client) nodeID() (id, secret string, err error) {
 	}
 
 	// Attempt to read existing secret ID
-	secretPath := filepath.Join(c.config.StateDir, "secret-id")
+	secretPath := filepath.Join(c.config.StateDir, "secret-id") // TODO: override this from command args
 	secretBuf, err := ioutil.ReadFile(secretPath)
 	if err != nil && !os.IsNotExist(err) {
 		return "", "", err
@@ -1329,7 +1329,10 @@ func (c *Client) submitNodeEvents(events []*structs.NodeEvent) error {
 	}
 	req := structs.EmitNodeEventsRequest{
 		NodeEvents:   nodeEvents,
-		WriteRequest: structs.WriteRequest{Region: c.Region()},
+		WriteRequest: structs.WriteRequest{
+			Region: c.Region(),
+			AuthToken: c.AuthToken(),
+		},
 	}
 	var resp structs.EmitNodeEventsResponse
 	if err := c.RPC("Node.EmitEvents", &req, &resp); err != nil {
@@ -1418,7 +1421,10 @@ func (c *Client) registerNode() error {
 	node := c.Node()
 	req := structs.NodeRegisterRequest{
 		Node:         node,
-		WriteRequest: structs.WriteRequest{Region: c.Region()},
+		WriteRequest: structs.WriteRequest{
+			Region: c.Region(),
+			AuthToken: c.AuthToken(),
+		},
 	}
 	var resp structs.NodeUpdateResponse
 	if err := c.RPC("Node.Register", &req, &resp); err != nil {
@@ -1449,7 +1455,10 @@ func (c *Client) updateNodeStatus() error {
 	req := structs.NodeUpdateStatusRequest{
 		NodeID:       c.NodeID(),
 		Status:       structs.NodeStatusReady,
-		WriteRequest: structs.WriteRequest{Region: c.Region()},
+		WriteRequest: structs.WriteRequest{
+			Region: c.Region(),
+			AuthToken: c.AuthToken(),
+		},
 	}
 	var resp structs.NodeUpdateResponse
 	if err := c.RPC("Node.UpdateStatus", &req, &resp); err != nil {
@@ -1579,7 +1588,10 @@ func (c *Client) allocSync() {
 			// Send to server.
 			args := structs.AllocUpdateRequest{
 				Alloc:        sync,
-				WriteRequest: structs.WriteRequest{Region: c.Region()},
+				WriteRequest: structs.WriteRequest{
+					Region: c.Region(),
+					AuthToken: c.AuthToken(),
+				},
 			}
 
 			var resp structs.GenericResponse
