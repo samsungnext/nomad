@@ -159,6 +159,9 @@ type ClientConfig struct {
 	// NodeClass is used to group the node by class
 	NodeClass string `mapstructure:"node_class"`
 
+	// The SecretID of an ACL token to use to authenticate RPC requests
+	Token string `mapstructure:"token"`
+
 	// Options is used for configuration of nomad internals,
 	// like fingerprinters and drivers. The format is:
 	//
@@ -1121,6 +1124,9 @@ func (a *ClientConfig) Merge(b *ClientConfig) *ClientConfig {
 	}
 	if b.NodeClass != "" {
 		result.NodeClass = b.NodeClass
+	}
+	if b.Token != "" {
+		result.Token = b.Token
 	}
 	if b.NetworkInterface != "" {
 		result.NetworkInterface = b.NetworkInterface

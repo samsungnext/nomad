@@ -362,6 +362,7 @@ func parseClient(result **ClientConfig, list *ast.ObjectList) error {
 		"alloc_dir",
 		"servers",
 		"node_class",
+		"token",
 		"options",
 		"meta",
 		"chroot_env",
