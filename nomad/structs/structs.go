@@ -224,6 +224,9 @@ type QueryOptions struct {
 	// If set, used as prefix for resource list searches
 	Prefix string
 
+	// If set, used as token for resource list searches
+	Token string
+
 	// AuthToken is secret portion of the ACL token used for the request
 	AuthToken string
 

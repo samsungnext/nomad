@@ -1209,6 +1209,8 @@ func (n *Node) List(args *structs.NodeListRequest,
 			var iter memdb.ResultIterator
 			if prefix := args.QueryOptions.Prefix; prefix != "" {
 				iter, err = state.NodesByIDPrefix(ws, prefix)
+			} else if token := args.QueryOptions.Token; token != "" {
+				iter, err = state.NodesByToken(ws, token)
 			} else {
 				iter, err = state.Nodes(ws)
 			}
