@@ -609,6 +609,7 @@ type Task struct {
 	ShutdownDelay   time.Duration `mapstructure:"shutdown_delay"`
 	KillSignal      string        `mapstructure:"kill_signal"`
 	Kind            string
+	Timeout         *time.Duration
 }
 
 func (t *Task) Canonicalize(tg *TaskGroup, job *Job) {
@@ -618,6 +619,9 @@ func (t *Task) Canonicalize(tg *TaskGroup, job *Job) {
 	t.Resources.Canonicalize()
 	if t.KillTimeout == nil {
 		t.KillTimeout = timeToPtr(5 * time.Second)
+	}
+	if t.Timeout == nil {
+		t.Timeout = timeToPtr(0)
 	}
 	if t.LogConfig == nil {
 		t.LogConfig = DefaultLogConfig()
