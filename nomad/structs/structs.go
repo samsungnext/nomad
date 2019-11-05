@@ -5324,6 +5324,9 @@ type Task struct {
 	// Used internally to manage tasks according to their TaskKind. Initial use case
 	// is for Consul Connect
 	Kind TaskKind
+
+	// Timeout is the max time the task execution will run
+	Timeout time.Duration
 }
 
 func (t *Task) Copy() *Task {
@@ -5436,6 +5439,9 @@ func (t *Task) Validate(ephemeralDisk *EphemeralDisk, jobType string, tgServices
 	}
 	if t.KillTimeout < 0 {
 		mErr.Errors = append(mErr.Errors, errors.New("KillTimeout must be a positive value"))
+	}
+	if t.Timeout < 0 {
+		mErr.Errors = append(mErr.Errors, errors.New("Timeout must be a positive value"))
 	}
 	if t.ShutdownDelay < 0 {
 		mErr.Errors = append(mErr.Errors, errors.New("ShutdownDelay must be a positive value"))
@@ -6318,6 +6324,11 @@ func (e *TaskEvent) SetDriverError(err error) *TaskEvent {
 func (e *TaskEvent) SetExitCode(c int) *TaskEvent {
 	e.ExitCode = c
 	e.Details["exit_code"] = fmt.Sprintf("%d", c)
+	return e
+}
+
+func (e *TaskEvent) SetTimeout(t bool) *TaskEvent {
+	e.Details["timeout"] = strconv.FormatBool(t)
 	return e
 }
 

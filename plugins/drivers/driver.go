@@ -391,6 +391,7 @@ type ExitResult struct {
 	Signal    int
 	OOMKilled bool
 	Err       error
+	TimedOut  bool
 }
 
 func (r *ExitResult) Successful() bool {
