@@ -2,7 +2,7 @@ import { currentURL } from '@ember/test-helpers';
 import { assign } from '@ember/polyfills';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import { formatBytes } from 'nomad-ui/helpers/format-bytes';
 import formatDuration from 'nomad-ui/utils/format-duration';
 import moment from 'moment';
@@ -59,11 +59,6 @@ module('Acceptance | client detail', function(hooks) {
 
     assert.ok(ClientDetail.title.includes(node.name), 'Title includes name');
     assert.ok(ClientDetail.title.includes(node.id), 'Title includes id');
-    assert.equal(
-      ClientDetail.statusLight.objectAt(0).id,
-      node.status,
-      'Title includes status light'
-    );
   });
 
   test('/clients/:id should list additional detail for the node below the title', async function(assert) {
@@ -445,6 +440,7 @@ module('Acceptance | client detail', function(hooks) {
 
   test('the status light indicates when the node is ineligible for scheduling', async function(assert) {
     node = server.create('node', {
+      drain: false,
       schedulingEligibility: 'ineligible',
     });
 

@@ -41,6 +41,12 @@ var (
 	// running operations such as waiting on containers and collect stats
 	waitClient *docker.Client
 
+	dockerTransientErrs = []string{
+		"Client.Timeout exceeded while awaiting headers",
+		"EOF",
+		"API error (500)",
+	}
+
 	// recoverableErrTimeouts returns a recoverable error if the error was due
 	// to timeouts
 	recoverableErrTimeouts = func(err error) error {
@@ -58,6 +64,10 @@ var (
 
 	// Nvidia-container-runtime environment variable names
 	nvidiaVisibleDevices = "NVIDIA_VISIBLE_DEVICES"
+)
+
+const (
+	dockerLabelAllocID = "com.hashicorp.nomad.alloc_id"
 )
 
 type Driver struct {
@@ -102,6 +112,8 @@ type Driver struct {
 	// for use during fingerprinting.
 	detected     bool
 	detectedLock sync.RWMutex
+
+	reconciler *containerReconciler
 }
 
 // NewDockerDriver returns a docker implementation of a driver plugin
@@ -197,23 +209,25 @@ func (d *Driver) RecoverTask(handle *drivers.TaskHandle) error {
 		net:                   handleState.DriverNetwork,
 	}
 
-	h.dlogger, h.dloggerPluginClient, err = d.reattachToDockerLogger(handleState.ReattachConfig)
-	if err != nil {
-		d.logger.Warn("failed to reattach to docker logger process", "error", err)
-
-		h.dlogger, h.dloggerPluginClient, err = d.setupNewDockerLogger(container, handle.Config, time.Now())
+	if !d.config.DisableLogCollection {
+		h.dlogger, h.dloggerPluginClient, err = d.reattachToDockerLogger(handleState.ReattachConfig)
 		if err != nil {
-			if err := client.StopContainer(handleState.ContainerID, 0); err != nil {
-				d.logger.Warn("failed to stop container during cleanup", "container_id", handleState.ContainerID, "error", err)
-			}
-			return fmt.Errorf("failed to setup replacement docker logger: %v", err)
-		}
+			d.logger.Warn("failed to reattach to docker logger process", "error", err)
 
-		if err := handle.SetDriverState(h.buildState()); err != nil {
-			if err := client.StopContainer(handleState.ContainerID, 0); err != nil {
-				d.logger.Warn("failed to stop container during cleanup", "container_id", handleState.ContainerID, "error", err)
+			h.dlogger, h.dloggerPluginClient, err = d.setupNewDockerLogger(container, handle.Config, time.Now())
+			if err != nil {
+				if err := client.StopContainer(handleState.ContainerID, 0); err != nil {
+					d.logger.Warn("failed to stop container during cleanup", "container_id", handleState.ContainerID, "error", err)
+				}
+				return fmt.Errorf("failed to setup replacement docker logger: %v", err)
 			}
-			return fmt.Errorf("failed to store driver state: %v", err)
+
+			if err := handle.SetDriverState(h.buildState()); err != nil {
+				if err := client.StopContainer(handleState.ContainerID, 0); err != nil {
+					d.logger.Warn("failed to stop container during cleanup", "container_id", handleState.ContainerID, "error", err)
+				}
+				return fmt.Errorf("failed to store driver state: %v", err)
+			}
 		}
 	}
 
@@ -269,6 +283,10 @@ CREATE:
 	container, err := d.createContainer(client, containerCfg, driverConfig.Image)
 	if err != nil {
 		d.logger.Error("failed to create container", "error", err)
+		client.RemoveContainer(docker.RemoveContainerOptions{
+			ID:    containerCfg.Name,
+			Force: true,
+		})
 		return nil, nil, nstructs.WrapRecoverable(fmt.Sprintf("failed to create container: %v", err), err)
 	}
 
@@ -299,8 +317,16 @@ CREATE:
 		// the container is started
 		runningContainer, err := client.InspectContainer(container.ID)
 		if err != nil {
+			client.RemoveContainer(docker.RemoveContainerOptions{
+				ID:    container.ID,
+				Force: true,
+			})
 			msg := "failed to inspect started container"
 			d.logger.Error(msg, "error", err)
+			client.RemoveContainer(docker.RemoveContainerOptions{
+				ID:    container.ID,
+				Force: true,
+			})
 			return nil, nil, nstructs.NewRecoverableError(fmt.Errorf("%s %s: %s", msg, container.ID, err), true)
 		}
 		container = runningContainer
@@ -310,11 +336,18 @@ CREATE:
 			container.ID, "container_state", container.State.String())
 	}
 
-	dlogger, pluginClient, err := d.setupNewDockerLogger(container, cfg, time.Unix(0, 0))
-	if err != nil {
-		d.logger.Error("an error occurred after container startup, terminating container", "container_id", container.ID)
-		client.RemoveContainer(docker.RemoveContainerOptions{ID: container.ID, Force: true})
-		return nil, nil, err
+	collectingLogs := !d.config.DisableLogCollection
+
+	var dlogger docklog.DockerLogger
+	var pluginClient *plugin.Client
+
+	if collectingLogs {
+		dlogger, pluginClient, err = d.setupNewDockerLogger(container, cfg, time.Unix(0, 0))
+		if err != nil {
+			d.logger.Error("an error occurred after container startup, terminating container", "container_id", container.ID)
+			client.RemoveContainer(docker.RemoveContainerOptions{ID: container.ID, Force: true})
+			return nil, nil, err
+		}
 	}
 
 	// Detect container address
@@ -344,8 +377,10 @@ CREATE:
 
 	if err := handle.SetDriverState(h.buildState()); err != nil {
 		d.logger.Error("error encoding container occurred after startup, terminating container", "container_id", container.ID, "error", err)
-		dlogger.Stop()
-		pluginClient.Kill()
+		if collectingLogs {
+			dlogger.Stop()
+			pluginClient.Kill()
+		}
 		client.RemoveContainer(docker.RemoveContainerOptions{ID: container.ID, Force: true})
 		return nil, nil, err
 	}
@@ -391,71 +426,41 @@ CREATE:
 	// If the container already exists determine whether it's already
 	// running or if it's dead and needs to be recreated.
 	if strings.Contains(strings.ToLower(createErr.Error()), "container already exists") {
-		containers, err := client.ListContainers(docker.ListContainersOptions{
-			All: true,
-		})
+
+		container, err := d.containerByName(config.Name)
 		if err != nil {
-			d.logger.Error("failed to query list of containers matching name", "container_name", config.Name)
-			return nil, recoverableErrTimeouts(fmt.Errorf("Failed to query list of containers: %s", err))
+			return nil, err
+		}
+
+		if container != nil && container.State.Running {
+			return container, nil
 		}
 
 		// Delete matching containers
-		// Adding a / infront of the container name since Docker returns the
-		// container names with a / pre-pended to the Nomad generated container names
-		containerName := "/" + config.Name
-		d.logger.Debug("searching for container to purge", "container_name", containerName)
-		for _, shimContainer := range containers {
-			d.logger.Debug("listed container", "names", hclog.Fmt("%+v", shimContainer.Names))
-			found := false
-			for _, name := range shimContainer.Names {
-				if name == containerName {
-					d.logger.Debug("Found container", "containter_name", containerName, "container_id", shimContainer.ID)
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				continue
-			}
-
-			// Inspect the container and if the container isn't dead then return
-			// the container
-			container, err := client.InspectContainer(shimContainer.ID)
-			if err != nil {
-				err = fmt.Errorf("Failed to inspect container %s: %s", shimContainer.ID, err)
-
-				// This error is always recoverable as it could
-				// be caused by races between listing
-				// containers and this container being removed.
-				// See #2802
-				return nil, nstructs.NewRecoverableError(err, true)
-			}
-			if container != nil && container.State.Running {
-				return container, nil
-			}
-
-			err = client.RemoveContainer(docker.RemoveContainerOptions{
-				ID:    container.ID,
-				Force: true,
-			})
-			if err != nil {
-				d.logger.Error("failed to purge container", "container_id", container.ID)
-				return nil, recoverableErrTimeouts(fmt.Errorf("Failed to purge container %s: %s", container.ID, err))
-			} else if err == nil {
-				d.logger.Info("purged container", "container_id", container.ID)
-			}
+		err = client.RemoveContainer(docker.RemoveContainerOptions{
+			ID:    container.ID,
+			Force: true,
+		})
+		if err != nil {
+			d.logger.Error("failed to purge container", "container_id", container.ID)
+			return nil, recoverableErrTimeouts(fmt.Errorf("Failed to purge container %s: %s", container.ID, err))
+		} else {
+			d.logger.Info("purged container", "container_id", container.ID)
 		}
 
 		if attempted < 5 {
 			attempted++
-			time.Sleep(1 * time.Second)
+			time.Sleep(nextBackoff(attempted))
 			goto CREATE
 		}
 	} else if strings.Contains(strings.ToLower(createErr.Error()), "no such image") {
 		// There is still a very small chance this is possible even with the
 		// coordinator so retry.
 		return nil, nstructs.NewRecoverableError(createErr, true)
+	} else if isDockerTransientError(createErr) && attempted < 5 {
+		attempted++
+		time.Sleep(nextBackoff(attempted))
+		goto CREATE
 	}
 
 	return nil, recoverableErrTimeouts(createErr)
@@ -468,23 +473,29 @@ func (d *Driver) startContainer(c *docker.Container) error {
 	attempted := 0
 START:
 	startErr := client.StartContainer(c.ID, c.HostConfig)
-	if startErr == nil {
+	if startErr == nil || strings.Contains(startErr.Error(), "Container already running") {
 		return nil
 	}
 
 	d.logger.Debug("failed to start container", "container_id", c.ID, "attempt", attempted+1, "error", startErr)
 
-	// If it is a 500 error it is likely we can retry and be successful
-	if strings.Contains(startErr.Error(), "API error (500)") {
+	if isDockerTransientError(startErr) {
 		if attempted < 5 {
 			attempted++
-			time.Sleep(1 * time.Second)
+			time.Sleep(nextBackoff(attempted))
 			goto START
 		}
 		return nstructs.NewRecoverableError(startErr, true)
 	}
 
 	return recoverableErrTimeouts(startErr)
+}
+
+// nextBackoff returns appropriate docker backoff durations after attempted attempts.
+func nextBackoff(attempted int) time.Duration {
+	// attempts in 200ms, 800ms, 3.2s, 12.8s, 51.2s
+	// TODO: add randomization factor and extract to a helper
+	return 1 << (2 * uint64(attempted)) * 50 * time.Millisecond
 }
 
 // createImage creates a docker image either by pulling it from a registry or by
@@ -543,7 +554,7 @@ func (d *Driver) pullImage(task *drivers.TaskConfig, driverConfig *TaskConfig, c
 		},
 	})
 
-	return d.coordinator.PullImage(driverConfig.Image, authOptions, task.ID, d.emitEventFunc(task))
+	return d.coordinator.PullImage(driverConfig.Image, authOptions, task.ID, d.emitEventFunc(task), d.config.pullActivityTimeoutDuration)
 }
 
 func (d *Driver) emitEventFunc(task *drivers.TaskConfig) LogEventFn {
@@ -650,6 +661,15 @@ func (d *Driver) containerBinds(task *drivers.TaskConfig, driverConfig *TaskConf
 	}
 
 	return binds, nil
+}
+
+var userMountToUnixMount = map[string]string{
+	// Empty string maps to `rprivate` for backwards compatibility in restored
+	// older tasks, where mount propagation will not be present.
+	"":                                     "rprivate",
+	nstructs.VolumeMountPropagationPrivate: "rprivate",
+	nstructs.VolumeMountPropagationHostToTask:    "rslave",
+	nstructs.VolumeMountPropagationBidirectional: "rshared",
 }
 
 func (d *Driver) createContainerConfig(task *drivers.TaskConfig, driverConfig *TaskConfig,
@@ -843,13 +863,24 @@ func (d *Driver) createContainerConfig(task *drivers.TaskConfig, driverConfig *T
 
 		hostConfig.Mounts = append(hostConfig.Mounts, hm)
 	}
+
 	for _, m := range task.Mounts {
-		hostConfig.Mounts = append(hostConfig.Mounts, docker.HostMount{
+		hm := docker.HostMount{
 			Type:     "bind",
 			Target:   m.TaskPath,
 			Source:   m.HostPath,
 			ReadOnly: m.Readonly,
-		})
+		}
+
+		// MountPropagation is only supported by Docker on Linux:
+		// https://docs.docker.com/storage/bind-mounts/#configure-bind-propagation
+		if runtime.GOOS == "linux" {
+			hm.BindOptions = &docker.BindOptions{
+				Propagation: userMountToUnixMount[m.PropagationMode],
+			}
+		}
+
+		hostConfig.Mounts = append(hostConfig.Mounts, hm)
 	}
 
 	// set DNS search domains and extra hosts
@@ -892,7 +923,6 @@ func (d *Driver) createContainerConfig(task *drivers.TaskConfig, driverConfig *T
 
 	// Setup port mapping and exposed ports
 	if len(task.Resources.NomadResources.Networks) == 0 {
-		logger.Debug("no network interfaces are available")
 		if len(driverConfig.PortMap) > 0 {
 			return c, fmt.Errorf("Trying to map ports but no network interface is available")
 		}
@@ -967,8 +997,15 @@ func (d *Driver) createContainerConfig(task *drivers.TaskConfig, driverConfig *T
 
 	if len(driverConfig.Labels) > 0 {
 		config.Labels = driverConfig.Labels
-		logger.Debug("applied labels on the container", "labels", config.Labels)
 	}
+
+	labels := make(map[string]string, len(driverConfig.Labels)+1)
+	for k, v := range driverConfig.Labels {
+		labels[k] = v
+	}
+	labels[dockerLabelAllocID] = task.AllocID
+	config.Labels = labels
+	logger.Debug("applied labels on the container", "labels", config.Labels)
 
 	config.Env = task.EnvList()
 
@@ -1056,6 +1093,59 @@ func (d *Driver) detectIP(c *docker.Container, driverConfig *TaskConfig) (string
 	}
 
 	return ip, auto
+}
+
+// containerByName finds a running container by name, and returns an error
+// if the container is dead or can't be found.
+func (d *Driver) containerByName(name string) (*docker.Container, error) {
+
+	client, _, err := d.dockerClients()
+	if err != nil {
+		return nil, err
+	}
+	containers, err := client.ListContainers(docker.ListContainersOptions{
+		All: true,
+	})
+	if err != nil {
+		d.logger.Error("failed to query list of containers matching name",
+			"container_name", name)
+		return nil, recoverableErrTimeouts(
+			fmt.Errorf("Failed to query list of containers: %s", err))
+	}
+
+	// container names with a / pre-pended to the Nomad generated container names
+	containerName := "/" + name
+	var (
+		shimContainer docker.APIContainers
+		found         bool
+	)
+OUTER:
+	for _, shimContainer = range containers {
+		d.logger.Trace("listed container", "names", hclog.Fmt("%+v", shimContainer.Names))
+		for _, name := range shimContainer.Names {
+			if name == containerName {
+				d.logger.Trace("Found container",
+					"container_name", containerName, "container_id", shimContainer.ID)
+				found = true
+				break OUTER
+			}
+		}
+	}
+	if !found {
+		return nil, nil
+	}
+
+	container, err := client.InspectContainer(shimContainer.ID)
+	if err != nil {
+		err = fmt.Errorf("Failed to inspect container %s: %s", shimContainer.ID, err)
+
+		// This error is always recoverable as it could
+		// be caused by races between listing
+		// containers and this container being removed.
+		// See #2802
+		return nil, nstructs.NewRecoverableError(err, true)
+	}
+	return container, nil
 }
 
 // validateCommand validates that the command only has a single value and
@@ -1457,4 +1547,19 @@ func sliceMergeUlimit(ulimitsRaw map[string]string) ([]docker.ULimit, error) {
 
 func (d *Driver) Shutdown() {
 	d.signalShutdown()
+}
+
+func isDockerTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := err.Error()
+	for _, te := range dockerTransientErrs {
+		if strings.Contains(errMsg, te) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -67,6 +67,10 @@ type Config struct {
 	// use of persistence or state.
 	DevMode bool
 
+	// EnableDebug is used to enable debugging RPC endpoints
+	// in the absence of ACLs
+	EnableDebug bool
+
 	// DevDisableBootstrap is used to disable bootstrap mode while
 	// in DevMode. This is largely used for testing.
 	DevDisableBootstrap bool
@@ -76,7 +80,7 @@ type Config struct {
 	LogOutput io.Writer
 
 	// Logger is the logger used by the server.
-	Logger log.Logger
+	Logger log.InterceptLogger
 
 	// ProtocolVersion is the protocol version to speak. This must be between
 	// ProtocolVersionMin and ProtocolVersionMax.
@@ -401,9 +405,8 @@ func DefaultConfig() *Config {
 	// Disable shutdown on removal
 	c.RaftConfig.ShutdownOnRemove = false
 
-	// Default to Raft v3 to enable new Raft and autopilot features.
-	// Compatible with v2 servers.
-	c.RaftConfig.ProtocolVersion = 3
+	// Default to Raft v2, update to v3 to enable new Raft and autopilot features.
+	c.RaftConfig.ProtocolVersion = 2
 
 	return c
 }

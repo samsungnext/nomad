@@ -24,8 +24,9 @@ import (
 func TestClientEndpoint_Register(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -151,15 +152,16 @@ func TestClientEndpoint_Register_ACL(t *testing.T) {
 func TestClientEndpoint_Register_NodeConn_Forwarded(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.BootstrapExpect = 2
 	})
 
-	defer s1.Shutdown()
-	s2 := TestServer(t, func(c *Config) {
+	defer cleanupS1()
+	s2, cleanupS2 := TestServer(t, func(c *Config) {
 		c.DevDisableBootstrap = true
 	})
-	defer s2.Shutdown()
+	defer cleanupS2()
 	TestJoin(t, s1, s2)
 	testutil.WaitForLeader(t, s1.RPC)
 	testutil.WaitForLeader(t, s2.RPC)
@@ -240,8 +242,9 @@ func TestClientEndpoint_Register_NodeConn_Forwarded(t *testing.T) {
 
 func TestClientEndpoint_Register_SecretMismatch(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -269,8 +272,9 @@ func TestClientEndpoint_Register_SecretMismatch(t *testing.T) {
 // Test the deprecated single node deregistration path
 func TestClientEndpoint_DeregisterOne(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -314,8 +318,9 @@ func TestClientEndpoint_DeregisterOne(t *testing.T) {
 
 func TestClientEndpoint_Deregister_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -379,8 +384,9 @@ func TestClientEndpoint_Deregister_ACL(t *testing.T) {
 
 func TestClientEndpoint_Deregister_Vault(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -441,8 +447,9 @@ func TestClientEndpoint_Deregister_Vault(t *testing.T) {
 func TestClientEndpoint_UpdateStatus(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -519,8 +526,9 @@ func TestClientEndpoint_UpdateStatus(t *testing.T) {
 
 func TestClientEndpoint_UpdateStatus_Vault(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -578,8 +586,9 @@ func TestClientEndpoint_UpdateStatus_Vault(t *testing.T) {
 func TestClientEndpoint_UpdateStatus_HeartbeatRecovery(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -627,8 +636,9 @@ func TestClientEndpoint_UpdateStatus_HeartbeatRecovery(t *testing.T) {
 
 func TestClientEndpoint_Register_GetEvals(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -721,8 +731,9 @@ func TestClientEndpoint_Register_GetEvals(t *testing.T) {
 
 func TestClientEndpoint_UpdateStatus_GetEvals(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -804,18 +815,19 @@ func TestClientEndpoint_UpdateStatus_GetEvals(t *testing.T) {
 
 func TestClientEndpoint_UpdateStatus_HeartbeatOnly(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
 
-	s2 := TestServer(t, func(c *Config) {
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
+
+	s2, cleanupS2 := TestServer(t, func(c *Config) {
 		c.DevDisableBootstrap = true
 	})
-	defer s2.Shutdown()
+	defer cleanupS2()
 
-	s3 := TestServer(t, func(c *Config) {
+	s3, cleanupS3 := TestServer(t, func(c *Config) {
 		c.DevDisableBootstrap = true
 	})
-	defer s3.Shutdown()
+	defer cleanupS3()
 	servers := []*Server{s1, s2, s3}
 	TestJoin(t, s1, s2, s3)
 
@@ -885,10 +897,10 @@ func TestClientEndpoint_UpdateStatus_HeartbeatOnly_Advertise(t *testing.T) {
 	adv, err := net.ResolveTCPAddr("tcp", advAddr)
 	require.Nil(err)
 
-	s1 := TestServer(t, func(c *Config) {
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.ClientRPCAdvertise = adv
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -919,8 +931,9 @@ func TestClientEndpoint_UpdateStatus_HeartbeatOnly_Advertise(t *testing.T) {
 func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -971,6 +984,17 @@ func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	// now+deadline should be after the forced deadline
 	require.True(time.Now().Add(strategy.Deadline).After(out.DrainStrategy.ForceDeadline))
 
+	drainStartedAt := out.DrainStrategy.StartedAt
+	// StartedAt should be close to the time the drain started
+	require.WithinDuration(beforeUpdate, drainStartedAt, 1*time.Second)
+
+	// StartedAt shouldn't change if a new request comes while still draining
+	require.Nil(msgpackrpc.CallWithCodec(codec, "Node.UpdateDrain", dereg, &resp2))
+	ws = memdb.NewWatchSet()
+	out, err = state.NodeByID(ws, node.ID)
+	require.NoError(err)
+	require.True(out.DrainStrategy.StartedAt.Equal(drainStartedAt))
+
 	// Register a system job
 	job := mock.SystemJob()
 	require.Nil(s1.State().UpsertJob(10, job))
@@ -988,8 +1012,8 @@ func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	ws = memdb.NewWatchSet()
 	out, err = state.NodeByID(ws, node.ID)
 	require.NoError(err)
-	require.Len(out.Events, 3)
-	require.Equal(NodeDrainEventDrainDisabled, out.Events[2].Message)
+	require.Len(out.Events, 4)
+	require.Equal(NodeDrainEventDrainDisabled, out.Events[3].Message)
 
 	// Check that calling UpdateDrain with the same DrainStrategy does not emit
 	// a node event.
@@ -997,13 +1021,14 @@ func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	ws = memdb.NewWatchSet()
 	out, err = state.NodeByID(ws, node.ID)
 	require.NoError(err)
-	require.Len(out.Events, 3)
+	require.Len(out.Events, 4)
 }
 
 func TestClientEndpoint_UpdateDrain_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -1063,8 +1088,9 @@ func TestClientEndpoint_UpdateDrain_ACL(t *testing.T) {
 // pending/running state to lost when a node is marked as down.
 func TestClientEndpoint_Drain_Down(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -1194,8 +1220,9 @@ func TestClientEndpoint_Drain_Down(t *testing.T) {
 func TestClientEndpoint_UpdateEligibility(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1250,8 +1277,9 @@ func TestClientEndpoint_UpdateEligibility(t *testing.T) {
 
 func TestClientEndpoint_UpdateEligibility_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -1305,8 +1333,9 @@ func TestClientEndpoint_UpdateEligibility_ACL(t *testing.T) {
 
 func TestClientEndpoint_GetNode(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1373,8 +1402,9 @@ func TestClientEndpoint_GetNode(t *testing.T) {
 
 func TestClientEndpoint_GetNode_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -1436,8 +1466,9 @@ func TestClientEndpoint_GetNode_ACL(t *testing.T) {
 
 func TestClientEndpoint_GetNode_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -1538,8 +1569,9 @@ func TestClientEndpoint_GetNode_Blocking(t *testing.T) {
 
 func TestClientEndpoint_GetAllocs(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1600,8 +1632,9 @@ func TestClientEndpoint_GetAllocs(t *testing.T) {
 
 func TestClientEndpoint_GetAllocs_ACL_Basic(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -1675,8 +1708,9 @@ func TestClientEndpoint_GetAllocs_ACL_Basic(t *testing.T) {
 func TestClientEndpoint_GetClientAllocs(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1753,8 +1787,9 @@ func TestClientEndpoint_GetClientAllocs(t *testing.T) {
 
 func TestClientEndpoint_GetClientAllocs_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1875,8 +1910,9 @@ func TestClientEndpoint_GetClientAllocs_Blocking(t *testing.T) {
 func TestClientEndpoint_GetClientAllocs_Blocking_GC(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1952,8 +1988,8 @@ func TestClientEndpoint_GetClientAllocs_WithoutMigrateTokens(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2003,8 +2039,9 @@ func TestClientEndpoint_GetClientAllocs_WithoutMigrateTokens(t *testing.T) {
 
 func TestClientEndpoint_GetAllocs_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2095,14 +2132,15 @@ func TestClientEndpoint_GetAllocs_Blocking(t *testing.T) {
 
 func TestClientEndpoint_UpdateAlloc(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		// Disabling scheduling in this test so that we can
 		// ensure that the state store doesn't accumulate more evals
 		// than what we expect the unit test to add
 		c.NumSchedulers = 0
 	})
 
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -2192,8 +2230,9 @@ func TestClientEndpoint_UpdateAlloc(t *testing.T) {
 
 func TestClientEndpoint_BatchUpdate(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2249,8 +2288,9 @@ func TestClientEndpoint_BatchUpdate(t *testing.T) {
 
 func TestClientEndpoint_UpdateAlloc_Vault(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2334,8 +2374,9 @@ func TestClientEndpoint_UpdateAlloc_Vault(t *testing.T) {
 
 func TestClientEndpoint_CreateNodeEvals(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	testutil.WaitForLeader(t, s1.RPC)
 
 	// Inject fake evaluations
@@ -2428,10 +2469,11 @@ func TestClientEndpoint_CreateNodeEvals(t *testing.T) {
 
 func TestClientEndpoint_Evaluate(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2515,8 +2557,9 @@ func TestClientEndpoint_Evaluate(t *testing.T) {
 
 func TestClientEndpoint_Evaluate_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -2573,8 +2616,9 @@ func TestClientEndpoint_Evaluate_ACL(t *testing.T) {
 
 func TestClientEndpoint_ListNodes(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2634,8 +2678,9 @@ func TestClientEndpoint_ListNodes(t *testing.T) {
 
 func TestClientEndpoint_ListNodes_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -2688,8 +2733,9 @@ func TestClientEndpoint_ListNodes_ACL(t *testing.T) {
 
 func TestClientEndpoint_ListNodes_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -2819,8 +2865,9 @@ func TestClientEndpoint_ListNodes_Blocking(t *testing.T) {
 
 func TestClientEndpoint_DeriveVaultToken_Bad(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -2900,8 +2947,9 @@ func TestClientEndpoint_DeriveVaultToken_Bad(t *testing.T) {
 
 func TestClientEndpoint_DeriveVaultToken(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -2992,8 +3040,9 @@ func TestClientEndpoint_DeriveVaultToken(t *testing.T) {
 
 func TestClientEndpoint_DeriveVaultToken_VaultError(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -3051,9 +3100,9 @@ func TestClientEndpoint_EmitEvents(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	s1 := TestServer(t, nil)
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
-	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 

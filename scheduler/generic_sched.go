@@ -509,9 +509,11 @@ func (s *GenericScheduler) computePlacements(destructive, place []placementResul
 					AllocatedResources: resources,
 					DesiredStatus:      structs.AllocDesiredStatusRun,
 					ClientStatus:       structs.AllocClientStatusPending,
+					// SharedResources is considered deprecated, will be removed in 0.11.
+					// It is only set for compat reasons.
 					SharedResources: &structs.Resources{
 						DiskMB:   tg.EphemeralDisk.SizeMB,
-						Networks: tg.Networks,
+						Networks: resources.Shared.Networks,
 					},
 				}
 
@@ -568,7 +570,12 @@ func getSelectOptions(prevAllocation *structs.Allocation, preferredNode *structs
 	selectOptions := &SelectOptions{}
 	if prevAllocation != nil {
 		penaltyNodes := make(map[string]struct{})
-		penaltyNodes[prevAllocation.NodeID] = struct{}{}
+
+		// If alloc failed, penalize the node it failed on to encourage
+		// rescheduling on a new node.
+		if prevAllocation.ClientStatus == structs.AllocClientStatusFailed {
+			penaltyNodes[prevAllocation.NodeID] = struct{}{}
+		}
 		if prevAllocation.RescheduleTracker != nil {
 			for _, reschedEvent := range prevAllocation.RescheduleTracker.Events {
 				penaltyNodes[reschedEvent.PrevNodeID] = struct{}{}
