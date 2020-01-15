@@ -125,6 +125,7 @@ func (h *HostStatsCollector) collectLocked() error {
 	// Collect memory stats
 	mstats, err := h.collectMemoryStats()
 	if err != nil {
+
 		h.logger.Error("failed to collect memory stats", "error", err)
 		mstats = &MemoryStats{}
 	}
@@ -133,6 +134,7 @@ func (h *HostStatsCollector) collectLocked() error {
 	// Collect cpu stats
 	cpus, ticks, err := h.collectCPUStats()
 	if err != nil {
+
 		h.logger.Error("failed to collect cpu stats", "error", err)
 		cpus = []*CPUStats{}
 		ticks = 0
@@ -143,6 +145,7 @@ func (h *HostStatsCollector) collectLocked() error {
 	// Collect disk stats
 	diskStats, err := h.collectDiskStats()
 	if err != nil {
+
 		h.logger.Error("failed to collect disk stats", "error", err)
 		hs.DiskStats = []*DiskStats{}
 	}
