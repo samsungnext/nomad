@@ -28,10 +28,6 @@ type ConfigEntry interface {
 	GetModifyIndex() uint64
 }
 
-<<<<<<< HEAD
-type ConnectConfiguration struct {
-	SidecarProxy bool
-=======
 type MeshGatewayMode string
 
 const (
@@ -87,22 +83,16 @@ type ExposePath struct {
 
 	// ParsedFromCheck is set if this path was parsed from a registered check
 	ParsedFromCheck bool
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 }
 
 type ServiceConfigEntry struct {
 	Kind        string
-	Name        string
-<<<<<<< HEAD
-	Protocol    string
-	Connect     ConnectConfiguration
-=======
+	Name        strin
 	Namespace   string            `json:",omitempty"`
 	Protocol    string            `json:",omitempty"`
 	MeshGateway MeshGatewayConfig `json:",omitempty"`
 	Expose      ExposeConfig      `json:",omitempty"`
 	ExternalSNI string            `json:",omitempty"`
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	CreateIndex uint64
 	ModifyIndex uint64
 }

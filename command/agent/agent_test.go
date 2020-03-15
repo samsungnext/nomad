@@ -60,25 +60,10 @@ func TestAgent_ServerConfig(t *testing.T) {
 	require.Equal(t, "127.0.0.1", serfAddr)
 
 	serfPort := out.SerfConfig.MemberlistConfig.AdvertisePort
-<<<<<<< HEAD
-	if serfPort != 4000 {
-		t.Fatalf("expected 4000, got: %d", serfPort)
-	}
-	if out.AuthoritativeRegion != "global" {
-		t.Fatalf("bad: %#v", out.AuthoritativeRegion)
-	}
-	if !out.ACLEnabled {
-		t.Fatalf("ACL not enabled")
-	}
-	if out.ACLEnforceNode {
-		t.Fatalf("ACLEnforceNode should be disabled by default")
-	}
-=======
-	require.Equal(t, 4000, serfPort)
 
+	require.Equal(t, 4000, serfPort)
 	require.Equal(t, "global", out.AuthoritativeRegion)
 	require.True(t, out.ACLEnabled)
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 
 	// Assert addresses weren't changed
 	require.Equal(t, "127.0.0.1:4001", conf.AdvertiseAddrs.RPC)

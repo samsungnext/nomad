@@ -3,18 +3,12 @@
 package freeport
 
 import (
-<<<<<<< HEAD
-	"fmt"
-	"math/rand"
-	"net"
-=======
 	"container/list"
 	"fmt"
 	"math/rand"
 	"net"
 	"os"
 	"runtime"
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	"sync"
 	"time"
 
@@ -22,17 +16,7 @@ import (
 )
 
 const (
-<<<<<<< HEAD
-	// blockSize is the size of the allocated port block. ports are given out
-	// consecutively from that block with roll-over for the lifetime of the
-	// application/test run.
-	blockSize = 1500
-
-	// maxBlocks is the number of available port blocks.
-	// lowPort + maxBlocks * blockSize must be less than 65535.
-=======
 	// maxBlocks is the number of available port blocks before exclusions.
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	maxBlocks = 30
 
 	// lowPort is the lowest port number that should be used.
@@ -44,8 +28,6 @@ const (
 )
 
 var (
-<<<<<<< HEAD
-=======
 	// blockSize is the size of the allocated port block. ports are given out
 	// consecutively from that block and after that point in a LRU fashion.
 	blockSize int
@@ -54,31 +36,22 @@ var (
 	// lowPort + effectiveMaxBlocks * blockSize must be less than 65535.
 	effectiveMaxBlocks int
 
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	// firstPort is the first port of the allocated block.
 	firstPort int
 
 	// lockLn is the system-wide mutex for the port block.
 	lockLn net.Listener
 
-<<<<<<< HEAD
-	// mu guards nextPort
-=======
 	// mu guards:
 	// - pendingPorts
 	// - freePorts
 	// - total
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	mu sync.Mutex
 
 	// once is used to do the initialization on the first call to retrieve free
 	// ports
 	once sync.Once
 
-<<<<<<< HEAD
-	// port is the last allocated port.
-	port int
-=======
 	// condNotEmpty is a condition variable to wait for freePorts to be not
 	// empty. Linked to 'mu'
 	condNotEmpty *sync.Cond
@@ -93,14 +66,10 @@ var (
 
 	// total is the total number of available ports in the block for use.
 	total int
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 )
 
 // initialize is used to initialize freeport.
 func initialize() {
-<<<<<<< HEAD
-	if lowPort+maxBlocks*blockSize > 65535 {
-=======
 	var err error
 
 	blockSize = 1500
@@ -121,14 +90,11 @@ func initialize() {
 		panic("freeport: no blocks of ports available outside of ephemeral range")
 	}
 	if lowPort+effectiveMaxBlocks*blockSize > 65535 {
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 		panic("freeport: block size too big or too many blocks requested")
 	}
 
 	rand.Seed(time.Now().UnixNano())
 	firstPort, lockLn = alloc()
-<<<<<<< HEAD
-=======
 
 	condNotEmpty = sync.NewCond(&mu)
 	freePorts = list.New()
@@ -229,7 +195,6 @@ func adjustMaxBlocks() (int, error) {
 		}
 	}
 	return maxBlocks, nil
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 }
 
 // alloc reserves a port block for exclusive use for the lifetime of the
@@ -238,89 +203,18 @@ func adjustMaxBlocks() (int, error) {
 // be automatically released when the application terminates.
 func alloc() (int, net.Listener) {
 	for i := 0; i < attempts; i++ {
-<<<<<<< HEAD
-		block := int(rand.Int31n(int32(maxBlocks)))
-=======
 		block := int(rand.Int31n(int32(effectiveMaxBlocks)))
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 		firstPort := lowPort + block*blockSize
 		ln, err := net.ListenTCP("tcp", tcpAddr("127.0.0.1", firstPort))
 		if err != nil {
 			continue
 		}
-<<<<<<< HEAD
-		// log.Printf("[DEBUG] freeport: allocated port block %d (%d-%d)", block, firstPort, firstPort+blockSize-1)
-=======
 		// logf("DEBUG", "allocated port block %d (%d-%d)", block, firstPort, firstPort+blockSize-1)
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 		return firstPort, ln
 	}
 	panic("freeport: cannot allocate port block")
 }
 
-<<<<<<< HEAD
-func tcpAddr(ip string, port int) *net.TCPAddr {
-	return &net.TCPAddr{IP: net.ParseIP(ip), Port: port}
-}
-
-// Get wraps the Free function and panics on any failure retrieving ports.
-func Get(n int) (ports []int) {
-	ports, err := Free(n)
-	if err != nil {
-		panic(err)
-	}
-
-	return ports
-}
-
-// GetT is suitable for use when retrieving unused ports in tests. If there is
-// an error retrieving free ports, the test will be failed.
-func GetT(t testing.T, n int) (ports []int) {
-	ports, err := Free(n)
-	if err != nil {
-		t.Fatalf("Failed retrieving free port: %v", err)
-	}
-
-	return ports
-}
-
-// Free returns a list of free ports from the allocated port block. It is safe
-// to call this method concurrently. Ports have been tested to be available on
-// 127.0.0.1 TCP but there is no guarantee that they will remain free in the
-// future.
-func Free(n int) (ports []int, err error) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if n > blockSize-1 {
-		return nil, fmt.Errorf("freeport: block size too small")
-	}
-
-	// Reserve a port block
-	once.Do(initialize)
-
-	for len(ports) < n {
-		port++
-
-		// roll-over the port
-		if port < firstPort+1 || port >= firstPort+blockSize {
-			port = firstPort + 1
-		}
-
-		// if the port is in use then skip it
-		ln, err := net.ListenTCP("tcp", tcpAddr("127.0.0.1", port))
-		if err != nil {
-			// log.Println("[DEBUG] freeport: port already in use: ", port)
-			continue
-		}
-		ln.Close()
-
-		ports = append(ports, port)
-	}
-	// log.Println("[DEBUG] freeport: free ports:", ports)
-	return ports, nil
-}
-=======
 // MustTake is the same as Take except it panics on error.
 func MustTake(n int) (ports []int) {
 	ports, err := Take(n)
@@ -460,4 +354,3 @@ func GetT(t testing.T, n int) (ports []int) { return MustTake(n) }
 
 // Deprecated: Please use Take/Return calls instead.
 func Free(n int) (ports []int, err error) { return MustTake(n), nil }
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19

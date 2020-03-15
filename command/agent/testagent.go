@@ -15,10 +15,7 @@ import (
 	testing "github.com/mitchellh/go-testing-interface"
 
 	metrics "github.com/armon/go-metrics"
-<<<<<<< HEAD
-	"github.com/hashicorp/consul/sdk/freeport"
-=======
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
+
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/client/fingerprint"

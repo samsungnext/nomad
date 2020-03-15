@@ -117,37 +117,25 @@ func (h *HostStatsCollector) collectLocked() error {
 	// Determine up-time
 	uptime, err := host.Uptime()
 	if err != nil {
-<<<<<<< HEAD
-		return fmt.Errorf("failed to collect uptime: %v", err)
-=======
 		h.logger.Error("failed to collect upstime stats", "error", err)
 		uptime = 0
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	}
 	hs.Uptime = uptime
 
 	// Collect memory stats
 	mstats, err := h.collectMemoryStats()
 	if err != nil {
-<<<<<<< HEAD
-		return fmt.Errorf("failed to collect memory stats: %v", err)
-=======
 		h.logger.Error("failed to collect memory stats", "error", err)
 		mstats = &MemoryStats{}
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	}
 	hs.Memory = mstats
 
 	// Collect cpu stats
 	cpus, ticks, err := h.collectCPUStats()
 	if err != nil {
-<<<<<<< HEAD
-		return fmt.Errorf("failed to collect cpu stats: %v", err)
-=======
 		h.logger.Error("failed to collect cpu stats", "error", err)
 		cpus = []*CPUStats{}
 		ticks = 0
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	}
 	hs.CPU = cpus
 	hs.CPUTicksConsumed = ticks
@@ -155,12 +143,8 @@ func (h *HostStatsCollector) collectLocked() error {
 	// Collect disk stats
 	diskStats, err := h.collectDiskStats()
 	if err != nil {
-<<<<<<< HEAD
-		return fmt.Errorf("error collecting disk stats: %v", err)
-=======
 		h.logger.Error("failed to collect disk stats", "error", err)
 		hs.DiskStats = []*DiskStats{}
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	}
 	hs.DiskStats = diskStats
 

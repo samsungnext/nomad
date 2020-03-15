@@ -227,12 +227,6 @@ func (a *Autopilot) pruneDeadServers() error {
 			if member.Status == serf.StatusFailed {
 				// If the node is a nonvoter, we can remove it immediately.
 				if found && s.Suffrage == raft.Nonvoter {
-<<<<<<< HEAD
-					a.logger.Printf("[INFO] autopilot: Attempting removal of failed server node %q", member.Name)
-					go serfLAN.RemoveFailedNode(member.Name)
-				} else {
-					failed = append(failed, member.Name)
-=======
 					a.logger.Info("Attempting removal of failed server node", "name", member.Name)
 					go serfLAN.RemoveFailedNode(member.Name)
 					if serfWAN != nil {
@@ -240,8 +234,6 @@ func (a *Autopilot) pruneDeadServers() error {
 					}
 				} else {
 					failed = append(failed, member)
-
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 				}
 			}
 		}

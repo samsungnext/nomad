@@ -21,10 +21,6 @@ import (
 	"os"
 	"os/exec"
 
-<<<<<<< HEAD
-	"github.com/hashicorp/consul/sdk/freeport"
-=======
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	cleanhttp "github.com/hashicorp/go-cleanhttp"
 	"github.com/hashicorp/nomad/helper/discover"
 	"github.com/hashicorp/nomad/helper/freeport"
