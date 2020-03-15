@@ -6,11 +6,7 @@ import (
 	"testing"
 	"time"
 
-<<<<<<< HEAD
-	"github.com/hashicorp/consul/sdk/freeport"
-=======
 	"github.com/hashicorp/nomad/helper/freeport"
->>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	"github.com/hashicorp/nomad/helper/testlog"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/yamux"
