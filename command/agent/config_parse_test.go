@@ -19,6 +19,7 @@ var basicConfig = &Config{
 	NodeName:    "my-web",
 	DataDir:     "/tmp/nomad",
 	PluginDir:   "/tmp/nomad-plugins",
+	LogFile:     "/var/log/nomad.log",
 	LogLevel:    "ERR",
 	LogJson:     true,
 	BindAddr:    "192.168.0.1",
@@ -85,6 +86,9 @@ var basicConfig = &Config{
 		HostVolumes: []*structs.ClientHostVolumeConfig{
 			{Name: "tmp", Path: "/tmp"},
 		},
+		CNIPath:             "/tmp/cni_path",
+		BridgeNetworkName:   "custom_bridge_name",
+		BridgeNetworkSubnet: "custom_bridge_subnet",
 	},
 	Server: &ServerConfig{
 		Enabled:                true,
@@ -152,25 +156,26 @@ var basicConfig = &Config{
 	DisableUpdateCheck:        helper.BoolToPtr(true),
 	DisableAnonymousSignature: true,
 	Consul: &config.ConsulConfig{
-		ServerServiceName:   "nomad",
-		ServerHTTPCheckName: "nomad-server-http-health-check",
-		ServerSerfCheckName: "nomad-server-serf-health-check",
-		ServerRPCCheckName:  "nomad-server-rpc-health-check",
-		ClientServiceName:   "nomad-client",
-		ClientHTTPCheckName: "nomad-client-http-health-check",
-		Addr:                "127.0.0.1:9500",
-		Token:               "token1",
-		Auth:                "username:pass",
-		EnableSSL:           &trueValue,
-		VerifySSL:           &trueValue,
-		CAFile:              "/path/to/ca/file",
-		CertFile:            "/path/to/cert/file",
-		KeyFile:             "/path/to/key/file",
-		ServerAutoJoin:      &trueValue,
-		ClientAutoJoin:      &trueValue,
-		AutoAdvertise:       &trueValue,
-		ChecksUseAdvertise:  &trueValue,
-		Timeout:             5 * time.Second,
+		ServerServiceName:    "nomad",
+		ServerHTTPCheckName:  "nomad-server-http-health-check",
+		ServerSerfCheckName:  "nomad-server-serf-health-check",
+		ServerRPCCheckName:   "nomad-server-rpc-health-check",
+		ClientServiceName:    "nomad-client",
+		ClientHTTPCheckName:  "nomad-client-http-health-check",
+		Addr:                 "127.0.0.1:9500",
+		AllowUnauthenticated: &trueValue,
+		Token:                "token1",
+		Auth:                 "username:pass",
+		EnableSSL:            &trueValue,
+		VerifySSL:            &trueValue,
+		CAFile:               "/path/to/ca/file",
+		CertFile:             "/path/to/cert/file",
+		KeyFile:              "/path/to/key/file",
+		ServerAutoJoin:       &trueValue,
+		ClientAutoJoin:       &trueValue,
+		AutoAdvertise:        &trueValue,
+		ChecksUseAdvertise:   &trueValue,
+		Timeout:              5 * time.Second,
 	},
 	Vault: &config.VaultConfig{
 		Addr:                 "127.0.0.1:9500",
@@ -224,6 +229,7 @@ var basicConfig = &Config{
 		LastContactThreshold:       12705 * time.Second,
 		LastContactThresholdHCL:    "12705s",
 		MaxTrailingLogs:            17849,
+		MinQuorum:                  3,
 		EnableRedundancyZones:      &trueValue,
 		DisableUpgradeMigration:    &trueValue,
 		EnableCustomUpgrades:       &trueValue,
@@ -368,6 +374,29 @@ var nonoptConfig = &Config{
 	Sentinel:                  nil,
 }
 
+func TestConfig_ParseMerge(t *testing.T) {
+	t.Parallel()
+
+	path, err := filepath.Abs(filepath.Join(".", "testdata", "basic.hcl"))
+	require.NoError(t, err)
+
+	actual, err := ParseConfigFile(path)
+	require.NoError(t, err)
+
+	require.Equal(t, basicConfig.Client, actual.Client)
+
+	oldDefault := &Config{
+		Consul:    config.DefaultConsulConfig(),
+		Vault:     config.DefaultVaultConfig(),
+		Autopilot: config.DefaultAutopilotConfig(),
+		Client:    &ClientConfig{},
+		Server:    &ServerConfig{},
+	}
+	merged := oldDefault.Merge(actual)
+	require.Equal(t, basicConfig.Client, merged.Client)
+
+}
+
 func TestConfig_Parse(t *testing.T) {
 	t.Parallel()
 
@@ -411,14 +440,10 @@ func TestConfig_Parse(t *testing.T) {
 		t.Run(tc.File, func(t *testing.T) {
 			require := require.New(t)
 			path, err := filepath.Abs(filepath.Join("./testdata", tc.File))
-			if err != nil {
-				t.Fatalf("file: %s\n\n%s", tc.File, err)
-			}
+			require.NoError(err)
 
 			actual, err := ParseConfigFile(path)
-			if (err != nil) != tc.Err {
-				t.Fatalf("file: %s\n\n%s", tc.File, err)
-			}
+			require.NoError(err)
 
 			// ParseConfig used to re-merge defaults for these three objects,
 			// despite them already being merged in LoadConfig. The test structs

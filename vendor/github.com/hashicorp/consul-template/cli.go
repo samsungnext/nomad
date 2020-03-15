@@ -152,7 +152,7 @@ func (cli *CLI) Run(args []string) int {
 				go runner.Start()
 			case *config.KillSignal:
 				fmt.Fprintf(cli.errStream, "Cleaning up...\n")
-				runner.Stop()
+				runner.StopImmediately()
 				return ExitCodeInterrupt
 			case signals.SignalLookup["SIGCHLD"]:
 				// The SIGCHLD signal is sent to the parent of a child process when it
@@ -422,11 +422,6 @@ func (cli *CLI) ParseFlags(args []string) (
 		c.Vault.Address = config.String(s)
 		return nil
 	}), "vault-addr", "")
-
-	flags.Var((funcDurationVar)(func(t time.Duration) error {
-		c.Vault.Grace = config.TimeDuration(t)
-		return nil
-	}), "vault-grace", "")
 
 	flags.Var((funcBoolVar)(func(b bool) error {
 		c.Vault.RenewToken = config.Bool(b)
@@ -730,11 +725,6 @@ Options:
 
   -vault-addr=<address>
       Sets the address of the Vault server
-
-  -vault-grace=<duration>
-      Sets the grace period between lease renewal and secret re-acquisition - if
-      the remaining lease duration is less than this value, Consul Template will
-      acquire a new secret from Vault
 
   -vault-renew-token
       Periodically renew the provided Vault API token - this defaults to "true"

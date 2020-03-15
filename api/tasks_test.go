@@ -368,6 +368,14 @@ func TestTask_Artifact(t *testing.T) {
 	}
 }
 
+func TestTask_VolumeMount(t *testing.T) {
+	t.Parallel()
+	vm := &VolumeMount{}
+	vm.Canonicalize()
+	require.NotNil(t, vm.PropagationMode)
+	require.Equal(t, *vm.PropagationMode, "private")
+}
+
 // Ensures no regression on https://github.com/hashicorp/nomad/issues/3132
 func TestTaskGroup_Canonicalize_Update(t *testing.T) {
 	// Job with an Empty() Update
@@ -627,6 +635,70 @@ func TestSpread_Canonicalize(t *testing.T) {
 			for _, spr := range tg.Spreads {
 				require.Equal(tc.expectedWeight, *spr.Weight)
 			}
+		})
+	}
+}
+
+func Test_NewDefaultReschedulePolicy(t *testing.T) {
+	testCases := []struct {
+		desc         string
+		inputJobType string
+		expected     *ReschedulePolicy
+	}{
+		{
+			desc:         "service job type",
+			inputJobType: "service",
+			expected: &ReschedulePolicy{
+				Attempts:      intToPtr(0),
+				Interval:      timeToPtr(0),
+				Delay:         timeToPtr(30 * time.Second),
+				DelayFunction: stringToPtr("exponential"),
+				MaxDelay:      timeToPtr(1 * time.Hour),
+				Unlimited:     boolToPtr(true),
+			},
+		},
+		{
+			desc:         "batch job type",
+			inputJobType: "batch",
+			expected: &ReschedulePolicy{
+				Attempts:      intToPtr(1),
+				Interval:      timeToPtr(24 * time.Hour),
+				Delay:         timeToPtr(5 * time.Second),
+				DelayFunction: stringToPtr("constant"),
+				MaxDelay:      timeToPtr(0),
+				Unlimited:     boolToPtr(false),
+			},
+		},
+		{
+			desc:         "system job type",
+			inputJobType: "system",
+			expected: &ReschedulePolicy{
+				Attempts:      intToPtr(0),
+				Interval:      timeToPtr(0),
+				Delay:         timeToPtr(0),
+				DelayFunction: stringToPtr(""),
+				MaxDelay:      timeToPtr(0),
+				Unlimited:     boolToPtr(false),
+			},
+		},
+		{
+			desc:         "unrecognised job type",
+			inputJobType: "unrecognised",
+			expected: &ReschedulePolicy{
+				Attempts:      intToPtr(0),
+				Interval:      timeToPtr(0),
+				Delay:         timeToPtr(0),
+				DelayFunction: stringToPtr(""),
+				MaxDelay:      timeToPtr(0),
+				Unlimited:     boolToPtr(false),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			actual := NewDefaultReschedulePolicy(tc.inputJobType)
+			assert.Equal(t, tc.expected, actual)
 		})
 	}
 }

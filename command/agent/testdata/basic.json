@@ -30,6 +30,7 @@
       "enable_redundancy_zones": true,
       "last_contact_threshold": "12705s",
       "max_trailing_logs": 17849,
+      "min_quorum": 3,
       "server_stabilization_time": "23057s"
     }
   ],
@@ -37,6 +38,8 @@
   "client": [
     {
       "alloc_dir": "/tmp/alloc",
+      "bridge_network_name": "custom_bridge_name",
+      "bridge_network_subnet": "custom_bridge_subnet",
       "chroot_env": [
         {
           "/opt/myapp/bin": "/bin",
@@ -45,6 +48,7 @@
       ],
       "client_max_port": 2000,
       "client_min_port": 1000,
+      "cni_path": "/tmp/cni_path",
       "cpu_total_compute": 4444,
       "disable_remote_exec": true,
       "enabled": true,
@@ -113,6 +117,7 @@
   "consul": [
     {
       "address": "127.0.0.1:9500",
+      "allow_unauthenticated": true,
       "auth": "username:pass",
       "auto_advertise": true,
       "ca_file": "/path/to/ca/file",
@@ -145,6 +150,7 @@
   ],
   "leave_on_interrupt": true,
   "leave_on_terminate": true,
+  "log_file": "/var/log/nomad.log",
   "log_json": true,
   "log_level": "ERR",
   "name": "my-web",

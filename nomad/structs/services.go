@@ -3,11 +3,13 @@ package structs
 import (
 	"crypto/sha1"
 	"fmt"
+	"hash"
 	"io"
 	"net/url"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -326,11 +328,20 @@ type Service struct {
 	// this service.
 	AddressMode string
 
+	// EnableTagOverride will disable Consul's anti-entropy mechanism for the
+	// tags of this service. External updates to the service definition via
+	// Consul will not be corrected to match the service definition set in the
+	// Nomad job specification.
+	//
+	// https://www.consul.io/docs/agent/services.html#service-definition
+	EnableTagOverride bool
+
 	Tags       []string          // List of tags for the service
 	CanaryTags []string          // List of tags for the service when it is a canary
 	Checks     []*ServiceCheck   // List of checks associated with the service
 	Connect    *ConsulConnect    // Consul Connect configuration
 	Meta       map[string]string // Consul service meta
+	CanaryMeta map[string]string // Consul service meta when it is a canary
 }
 
 // Copy the stanza recursively. Returns nil if nil.
@@ -354,6 +365,7 @@ func (s *Service) Copy() *Service {
 	ns.Connect = s.Connect.Copy()
 
 	ns.Meta = helper.CopyMapStringString(s.Meta)
+	ns.CanaryMeta = helper.CopyMapStringString(s.CanaryMeta)
 
 	return ns
 }
@@ -386,7 +398,7 @@ func (s *Service) Canonicalize(job string, taskGroup string, task string) {
 	}
 }
 
-// Validate checks if the Check definition is valid
+// Validate checks if the Service definition is valid
 func (s *Service) Validate() error {
 	var mErr multierror.Error
 
@@ -434,7 +446,7 @@ func (s *Service) Validate() error {
 	return mErr.ErrorOrNil()
 }
 
-// ValidateName checks if the services Name is valid and should be called after
+// ValidateName checks if the service Name is valid and should be called after
 // the name has been interpolated
 func (s *Service) ValidateName(name string) error {
 	// Ensure the service name is valid per RFC-952 §1
@@ -452,31 +464,64 @@ func (s *Service) ValidateName(name string) error {
 // as they're hashed independently.
 func (s *Service) Hash(allocID, taskName string, canary bool) string {
 	h := sha1.New()
-	io.WriteString(h, allocID)
-	io.WriteString(h, taskName)
-	io.WriteString(h, s.Name)
-	io.WriteString(h, s.PortLabel)
-	io.WriteString(h, s.AddressMode)
-	for _, tag := range s.Tags {
-		io.WriteString(h, tag)
-	}
-	for _, tag := range s.CanaryTags {
-		io.WriteString(h, tag)
-	}
-	if len(s.Meta) > 0 {
-		fmt.Fprintf(h, "%v", s.Meta)
-	}
-
-	// Vary ID on whether or not CanaryTags will be used
-	if canary {
-		h.Write([]byte("Canary"))
-	}
+	hashString(h, allocID)
+	hashString(h, taskName)
+	hashString(h, s.Name)
+	hashString(h, s.PortLabel)
+	hashString(h, s.AddressMode)
+	hashTags(h, s.Tags)
+	hashTags(h, s.CanaryTags)
+	hashBool(h, canary, "Canary")
+	hashBool(h, s.EnableTagOverride, "ETO")
+	hashMeta(h, s.Meta)
+	hashMeta(h, s.CanaryMeta)
+	hashConnect(h, s.Connect)
 
 	// Base32 is used for encoding the hash as sha1 hashes can always be
 	// encoded without padding, only 4 bytes larger than base64, and saves
 	// 8 bytes vs hex. Since these hashes are used in Consul URLs it's nice
 	// to have a reasonably compact URL-safe representation.
 	return b32.EncodeToString(h.Sum(nil))
+}
+
+func hashConnect(h hash.Hash, connect *ConsulConnect) {
+	if connect != nil && connect.SidecarService != nil {
+		hashString(h, connect.SidecarService.Port)
+		hashTags(h, connect.SidecarService.Tags)
+		if p := connect.SidecarService.Proxy; p != nil {
+			hashString(h, p.LocalServiceAddress)
+			hashString(h, strconv.Itoa(p.LocalServicePort))
+			hashConfig(h, p.Config)
+			for _, upstream := range p.Upstreams {
+				hashString(h, upstream.DestinationName)
+				hashString(h, strconv.Itoa(upstream.LocalBindPort))
+			}
+		}
+	}
+}
+
+func hashString(h hash.Hash, s string) {
+	_, _ = io.WriteString(h, s)
+}
+
+func hashBool(h hash.Hash, b bool, name string) {
+	if b {
+		hashString(h, name)
+	}
+}
+
+func hashTags(h hash.Hash, tags []string) {
+	for _, tag := range tags {
+		hashString(h, tag)
+	}
+}
+
+func hashMeta(h hash.Hash, m map[string]string) {
+	_, _ = fmt.Fprintf(h, "%v", m)
+}
+
+func hashConfig(h hash.Hash, c map[string]interface{}) {
+	_, _ = fmt.Fprintf(h, "%v", c)
 }
 
 // Equals returns true if the structs are recursively equal.
@@ -526,7 +571,15 @@ OUTER:
 		return false
 	}
 
+	if !reflect.DeepEqual(s.CanaryMeta, o.CanaryMeta) {
+		return false
+	}
+
 	if !helper.CompareSliceSetString(s.Tags, o.Tags) {
+		return false
+	}
+
+	if s.EnableTagOverride != o.EnableTagOverride {
 		return false
 	}
 
@@ -597,6 +650,10 @@ func (c *ConsulConnect) Validate() error {
 // ConsulSidecarService represents a Consul Connect SidecarService jobspec
 // stanza.
 type ConsulSidecarService struct {
+	// Tags are optional service tags that get registered with the sidecar service
+	// in Consul. If unset, the sidecar service inherits the parent service tags.
+	Tags []string
+
 	// Port is the service's port that the sidecar will connect to. May be
 	// a port label or a literal port number.
 	Port string
@@ -613,6 +670,7 @@ func (s *ConsulSidecarService) HasUpstreams() bool {
 // Copy the stanza recursively. Returns nil if nil.
 func (s *ConsulSidecarService) Copy() *ConsulSidecarService {
 	return &ConsulSidecarService{
+		Tags:  helper.CopySliceString(s.Tags),
 		Port:  s.Port,
 		Proxy: s.Proxy.Copy(),
 	}
@@ -625,6 +683,10 @@ func (s *ConsulSidecarService) Equals(o *ConsulSidecarService) bool {
 	}
 
 	if s.Port != o.Port {
+		return false
+	}
+
+	if !helper.CompareSliceSetString(s.Tags, o.Tags) {
 		return false
 	}
 
@@ -778,6 +840,17 @@ func (t *SidecarTask) MergeIntoTask(task *Task) {
 
 // ConsulProxy represents a Consul Connect sidecar proxy jobspec stanza.
 type ConsulProxy struct {
+
+	// LocalServiceAddress is the address the local service binds to.
+	// Usually 127.0.0.1 it is useful to customize in clusters with mixed
+	// Connect and non-Connect services.
+	LocalServiceAddress string
+
+	// LocalServicePort is the port the local service binds to. Usually
+	// the same as the parent service's port, it is useful to customize
+	// in clusters with mixed Connect and non-Connect services
+	LocalServicePort int
+
 	// Upstreams configures the upstream services this service intends to
 	// connect to.
 	Upstreams []ConsulUpstream
@@ -794,6 +867,8 @@ func (p *ConsulProxy) Copy() *ConsulProxy {
 	}
 
 	newP := ConsulProxy{}
+	newP.LocalServiceAddress = p.LocalServiceAddress
+	newP.LocalServicePort = p.LocalServicePort
 
 	if n := len(p.Upstreams); n > 0 {
 		newP.Upstreams = make([]ConsulUpstream, n)
@@ -820,6 +895,12 @@ func (p *ConsulProxy) Equals(o *ConsulProxy) bool {
 		return p == o
 	}
 
+	if p.LocalServiceAddress != o.LocalServiceAddress {
+		return false
+	}
+	if p.LocalServicePort != o.LocalServicePort {
+		return false
+	}
 	if len(p.Upstreams) != len(o.Upstreams) {
 		return false
 	}

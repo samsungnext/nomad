@@ -15,12 +15,20 @@ var (
 	//
 	// Version must conform to the format expected by github.com/hashicorp/go-version
 	// for tests to work.
+<<<<<<< HEAD
 	Version = "1.5.1"
+=======
+	Version = "1.7.0"
+>>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 
 	// A pre-release marker for the version. If this is "" (empty string)
 	// then it means that it is a final release. Otherwise, this is a pre-release
 	// such as "dev" (in development), "beta", "rc1", etc.
+<<<<<<< HEAD
 	VersionPrerelease = ""
+=======
+	VersionPrerelease = "dev"
+>>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 )
 
 // GetHumanVersion composes the parts of the version in a way that's suitable

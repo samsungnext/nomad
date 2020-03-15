@@ -1,4 +1,6 @@
-import { Factory, faker } from 'ember-cli-mirage';
+import { Factory, trait } from 'ember-cli-mirage';
+import faker from 'nomad-ui/mirage/faker';
+import { provide } from '../utils';
 
 const DISK_RESERVATIONS = [200, 500, 1000, 2000, 5000, 10000, 100000];
 
@@ -8,9 +10,15 @@ export default Factory.extend({
 
   ephemeralDisk: () => ({
     Sticky: faker.random.boolean(),
-    SizeMB: faker.random.arrayElement(DISK_RESERVATIONS),
+    SizeMB: faker.helpers.randomize(DISK_RESERVATIONS),
     Migrate: faker.random.boolean(),
   }),
+
+  noHostVolumes: trait({
+    volumes: () => ({}),
+  }),
+
+  volumes: makeHostVolumes(),
 
   // Directive used to control whether or not allocations are automatically
   // created.
@@ -28,10 +36,22 @@ export default Factory.extend({
 
   afterCreate(group, server) {
     let taskIds = [];
+    let volumes = Object.keys(group.volumes);
 
     if (!group.shallow) {
-      const tasks = server.createList('task', group.count, {
-        taskGroup: group,
+      const tasks = provide(group.count, () => {
+        const mounts = faker.helpers
+          .shuffle(volumes)
+          .slice(0, faker.random.number({ min: 1, max: 3 }));
+        return server.create('task', {
+          taskGroup: group,
+          volumeMounts: mounts.map(mount => ({
+            Volume: mount,
+            Destination: `/${faker.internet.userName()}/${faker.internet.domainWord()}/${faker.internet.color()}`,
+            PropagationMode: '',
+            ReadOnly: faker.random.boolean(),
+          })),
+        });
       });
       taskIds = tasks.mapBy('id');
     }
@@ -75,3 +95,18 @@ export default Factory.extend({
     }
   },
 });
+
+function makeHostVolumes() {
+  const generate = () => ({
+    Name: faker.internet.domainWord(),
+    Type: 'host',
+    Source: faker.internet.domainWord(),
+    ReadOnly: faker.random.boolean(),
+  });
+
+  const volumes = provide(faker.random.number({ min: 1, max: 5 }), generate);
+  return volumes.reduce((hash, volume) => {
+    hash[volume.Name] = volume;
+    return hash;
+  }, {});
+}

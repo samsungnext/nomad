@@ -2,6 +2,8 @@
 
 ## Code
 
+* [ ] Consider similar features in Consul, Kubernetes, and other tools. Is
+  there prior art we should match? Terminology, structure, etc?
 * [ ] Parse in `jobspec/parse.go`
 * [ ] Test in `jobspec/parse_test.go` (preferably with a
   `jobspec/text-fixtures/<feature>.hcl` test file)
@@ -20,6 +22,7 @@
 
 * [ ] Changelog
 * [ ] Jobspec entry https://www.nomadproject.io/docs/job-specification/index.html
+* [ ] Jobspec sidebar entry https://github.com/hashicorp/nomad/blob/master/website/source/layouts/docs.erb
 * [ ] Job JSON API entry https://www.nomadproject.io/api/json-jobs.html
 * [ ] Sample Response output in API https://www.nomadproject.io/api/jobs.html
 * [ ] Consider if it needs a guide https://www.nomadproject.io/guides/index.html

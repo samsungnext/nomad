@@ -1,7 +1,7 @@
 import { currentURL } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import { formatBytes } from 'nomad-ui/helpers/format-bytes';
 import TaskGroup from 'nomad-ui/tests/pages/jobs/job/task-group';
 import JobsList from 'nomad-ui/tests/pages/jobs/list';
@@ -161,6 +161,11 @@ module('Acceptance | task group detail', function(hooks) {
       server.db.nodes.find(allocation.nodeId).id.split('-')[0],
       'Node ID'
     );
+    assert.equal(
+      allocationRow.volume,
+      Object.keys(taskGroup.volumes).length ? 'Yes' : '',
+      'Volumes'
+    );
 
     await allocationRow.visitClient();
 
@@ -221,11 +226,37 @@ module('Acceptance | task group detail', function(hooks) {
     assert.notOk(normalRow.rescheduled, 'Normal row has no reschedule icon');
   });
 
+  test('when the task group depends on volumes, the volumes table is shown', async function(assert) {
+    assert.ok(TaskGroup.hasVolumes);
+    assert.equal(TaskGroup.volumes.length, Object.keys(taskGroup.volumes).length);
+  });
+
+  test('when the task group does not depend on volumes, the volumes table is not shown', async function(assert) {
+    job = server.create('job', { noHostVolumes: true, shallow: true });
+    taskGroup = server.db.taskGroups.where({ jobId: job.id })[0];
+
+    await TaskGroup.visit({ id: job.id, name: taskGroup.name });
+
+    assert.notOk(TaskGroup.hasVolumes);
+  });
+
+  test('each row in the volumes table lists information about the volume', async function(assert) {
+    TaskGroup.volumes[0].as(volumeRow => {
+      const volume = taskGroup.volumes[volumeRow.name];
+      assert.equal(volumeRow.name, volume.Name);
+      assert.equal(volumeRow.type, volume.Type);
+      assert.equal(volumeRow.source, volume.Source);
+      assert.equal(volumeRow.permissions, volume.ReadOnly ? 'Read' : 'Read/Write');
+    });
+  });
+
   test('when the job for the task group is not found, an error message is shown, but the URL persists', async function(assert) {
     await TaskGroup.visit({ id: 'not-a-real-job', name: 'not-a-real-task-group' });
 
     assert.equal(
-      server.pretender.handledRequests.findBy('status', 404).url,
+      server.pretender.handledRequests
+        .filter(request => !request.url.includes('policy'))
+        .findBy('status', 404).url,
       '/v1/job/not-a-real-job',
       'A request to the nonexistent job is made'
     );

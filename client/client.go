@@ -1,7 +1,6 @@
 package client
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -46,6 +45,7 @@ import (
 	"github.com/hashicorp/nomad/plugins/device"
 	"github.com/hashicorp/nomad/plugins/drivers"
 	vaultapi "github.com/hashicorp/vault/api"
+	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/host"
 )
 
@@ -95,7 +95,8 @@ const (
 
 	// defaultConnectSidecarImage is the image set in the node meta by default
 	// to be used by Consul Connect sidecar tasks
-	defaultConnectSidecarImage = "envoyproxy/envoy:v1.11.1"
+	// Update sidecar_task.html when updating this.
+	defaultConnectSidecarImage = "envoyproxy/envoy:v1.11.2@sha256:a7769160c9c1a55bb8d07a3b71ce5d64f72b1f665f10d81aa1581bc3cf850d09"
 
 	// defaultConnectLogLevel is the log level set in the node meta by default
 	// to be used by Consul Connect sidecar tasks
@@ -162,7 +163,7 @@ type Client struct {
 	configCopy *config.Config
 	configLock sync.RWMutex
 
-	logger    hclog.Logger
+	logger    hclog.InterceptLogger
 	rpcLogger hclog.Logger
 
 	connPool *pool.ConnPool
@@ -235,6 +236,10 @@ type Client struct {
 	// Shutdown() blocks on Wait() after closing shutdownCh.
 	shutdownGroup group
 
+	// tokensClient is Nomad Client's custom Consul client for requesting Consul
+	// Service Identity tokens through Nomad Server.
+	tokensClient consulApi.ServiceIdentityAPI
+
 	// vaultClient is used to interact with Vault for token and secret renewals
 	vaultClient vaultclient.VaultClient
 
@@ -303,7 +308,7 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 	}
 
 	// Create the logger
-	logger := cfg.Logger.ResetNamed("client")
+	logger := cfg.Logger.ResetNamedIntercept("client")
 
 	// Create the client
 	c := &Client{
@@ -442,6 +447,10 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 			// No configured servers; trigger discovery manually
 			c.triggerDiscoveryCh <- struct{}{}
 		}
+	}
+
+	if err := c.setupConsulTokenClient(); err != nil {
+		return nil, errors.Wrap(err, "failed to setup consul tokens client")
 	}
 
 	// Setup the vault client for token and secret renewals
@@ -736,6 +745,16 @@ func (c *Client) Stats() map[string]map[string]string {
 	return stats
 }
 
+// GetAlloc returns an allocation or an error.
+func (c *Client) GetAlloc(allocID string) (*structs.Allocation, error) {
+	ar, err := c.getAllocRunner(allocID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ar.Alloc(), nil
+}
+
 // SignalAllocation sends a signal to the tasks within an allocation.
 // If the provided task is empty, then every allocation will be signalled.
 // If a task is provided, then only an exactly matching task will be signalled.
@@ -783,6 +802,8 @@ func (c *Client) Node() *structs.Node {
 	return c.configCopy.Node
 }
 
+// getAllocRunner returns an AllocRunner or an UnknownAllocation error if the
+// client has no runner for the given alloc ID.
 func (c *Client) getAllocRunner(allocID string) (AllocRunner, error) {
 	c.allocLock.RLock()
 	defer c.allocLock.RUnlock()
@@ -887,7 +908,6 @@ func (c *Client) GetAllocFS(allocID string) (allocdir.AllocDirFS, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return ar.GetAllocDir(), nil
 }
 
@@ -1035,6 +1055,7 @@ func (c *Client) restoreState() error {
 			StateUpdater:        c,
 			DeviceStatsReporter: c,
 			Consul:              c.consulService,
+			ConsulSI:            c.tokensClient,
 			Vault:               c.vaultClient,
 			PrevAllocWatcher:    prevAllocWatcher,
 			PrevAllocMigrator:   prevAllocMigrator,
@@ -1284,11 +1305,13 @@ func (c *Client) setupNode() error {
 	if node.Name == "" {
 		node.Name, _ = os.Hostname()
 	}
-	// TODO(dani): Fingerprint these to handle volumes that don't exist/have bad perms.
 	if node.HostVolumes == nil {
 		if l := len(c.config.HostVolumes); l != 0 {
 			node.HostVolumes = make(map[string]*structs.ClientHostVolumeConfig, l)
 			for k, v := range c.config.HostVolumes {
+				if _, err := os.Stat(v.Path); err != nil {
+					return fmt.Errorf("failed to validate volume %s, err: %v", v.Name, err)
+				}
 				node.HostVolumes[k] = v.Copy()
 			}
 		}
@@ -1893,6 +1916,7 @@ func (c *Client) watchAllocations(updates chan *allocUpdates) {
 		QueryOptions: structs.QueryOptions{
 			Region:     c.Region(),
 			AllowStale: true,
+			AuthToken:  c.secretNodeID(),
 		},
 	}
 	var allocsResp structs.AllocsGetResponse
@@ -1997,6 +2021,10 @@ OUTER:
 			// Ensure that we received all the allocations we wanted
 			pulledAllocs = make(map[string]*structs.Allocation, len(allocsResp.Allocs))
 			for _, alloc := range allocsResp.Allocs {
+
+				// handle an old Server
+				alloc.Canonicalize()
+
 				pulledAllocs[alloc.ID] = alloc
 			}
 
@@ -2293,6 +2321,7 @@ func (c *Client) addAlloc(alloc *structs.Allocation, migrateToken string) error 
 		ClientConfig:        c.configCopy,
 		StateDB:             c.stateDB,
 		Consul:              c.consulService,
+		ConsulSI:            c.tokensClient,
 		Vault:               c.vaultClient,
 		StateUpdater:        c,
 		DeviceStatsReporter: c,
@@ -2312,6 +2341,14 @@ func (c *Client) addAlloc(alloc *structs.Allocation, migrateToken string) error 
 	c.allocs[alloc.ID] = ar
 
 	go ar.Run()
+	return nil
+}
+
+// setupConsulTokenClient configures a tokenClient for managing consul service
+// identity tokens.
+func (c *Client) setupConsulTokenClient() error {
+	tc := consulApi.NewIdentitiesClient(c.logger, c.deriveSIToken)
+	c.tokensClient = tc
 	return nil
 }
 
@@ -2340,33 +2377,10 @@ func (c *Client) setupVaultClient() error {
 // client and returns a map of unwrapped tokens, indexed by the task name.
 func (c *Client) deriveToken(alloc *structs.Allocation, taskNames []string, vclient *vaultapi.Client) (map[string]string, error) {
 	vlogger := c.logger.Named("vault")
-	if alloc == nil {
-		return nil, fmt.Errorf("nil allocation")
-	}
 
-	if taskNames == nil || len(taskNames) == 0 {
-		return nil, fmt.Errorf("missing task names")
-	}
-
-	group := alloc.Job.LookupTaskGroup(alloc.TaskGroup)
-	if group == nil {
-		return nil, fmt.Errorf("group name in allocation is not present in job")
-	}
-
-	verifiedTasks := []string{}
-	// Check if the given task names actually exist in the allocation
-	for _, taskName := range taskNames {
-		found := false
-		for _, task := range group.Tasks {
-			if task.Name == taskName {
-				found = true
-			}
-		}
-		if !found {
-			vlogger.Error("task not found in the allocation", "task_name", taskName)
-			return nil, fmt.Errorf("task %q not found in the allocation", taskName)
-		}
-		verifiedTasks = append(verifiedTasks, taskName)
+	verifiedTasks, err := verifiedTasks(vlogger, alloc, taskNames)
+	if err != nil {
+		return nil, err
 	}
 
 	// DeriveVaultToken of nomad server can take in a set of tasks and
@@ -2439,6 +2453,90 @@ func (c *Client) deriveToken(alloc *structs.Allocation, taskNames []string, vcli
 	}
 
 	return unwrappedTokens, nil
+}
+
+// deriveSIToken takes an allocation and a set of tasks and derives Consul
+// Service Identity tokens for each of the tasks by requesting them from the
+// Nomad Server.
+func (c *Client) deriveSIToken(alloc *structs.Allocation, taskNames []string) (map[string]string, error) {
+	tasks, err := verifiedTasks(c.logger, alloc, taskNames)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &structs.DeriveSITokenRequest{
+		NodeID:       c.NodeID(),
+		SecretID:     c.secretNodeID(),
+		AllocID:      alloc.ID,
+		Tasks:        tasks,
+		QueryOptions: structs.QueryOptions{Region: c.Region()},
+	}
+
+	// Nicely ask Nomad Server for the tokens.
+	var resp structs.DeriveSITokenResponse
+	if err := c.RPC("Node.DeriveSIToken", &req, &resp); err != nil {
+		c.logger.Error("error making derive token RPC", "error", err)
+		return nil, fmt.Errorf("DeriveSIToken RPC failed: %v", err)
+	}
+	if err := resp.Error; err != nil {
+		c.logger.Error("error deriving SI tokens", "error", err)
+		return nil, structs.NewWrappedServerError(err)
+	}
+	if len(resp.Tokens) == 0 {
+		c.logger.Error("error deriving SI tokens", "error", "invalid_response")
+		return nil, fmt.Errorf("failed to derive SI tokens: invalid response")
+	}
+
+	// NOTE: Unlike with the Vault integration, Nomad Server replies with the
+	// actual Consul SI token (.SecretID), because otherwise each Nomad
+	// Client would need to be blessed with 'acl:write' permissions to read the
+	// secret value given the .AccessorID, which does not fit well in the Consul
+	// security model.
+	//
+	// https://www.consul.io/api/acl/tokens.html#read-a-token
+	// https://www.consul.io/docs/internals/security.html
+
+	m := helper.CopyMapStringString(resp.Tokens)
+	return m, nil
+}
+
+// verifiedTasks asserts each task in taskNames actually exists in the given alloc,
+// otherwise an error is returned.
+func verifiedTasks(logger hclog.Logger, alloc *structs.Allocation, taskNames []string) ([]string, error) {
+	if alloc == nil {
+		return nil, fmt.Errorf("nil allocation")
+	}
+
+	if len(taskNames) == 0 {
+		return nil, fmt.Errorf("missing task names")
+	}
+
+	group := alloc.Job.LookupTaskGroup(alloc.TaskGroup)
+	if group == nil {
+		return nil, fmt.Errorf("group name in allocation is not present in job")
+	}
+
+	verifiedTasks := make([]string, 0, len(taskNames))
+
+	// confirm the requested task names actually exist in the allocation
+	for _, taskName := range taskNames {
+		if !taskIsPresent(taskName, group.Tasks) {
+			logger.Error("task not found in the allocation", "task_name", taskName)
+			return nil, fmt.Errorf("task %q not found in allocation", taskName)
+		}
+		verifiedTasks = append(verifiedTasks, taskName)
+	}
+
+	return verifiedTasks, nil
+}
+
+func taskIsPresent(taskName string, tasks []*structs.Task) bool {
+	for _, task := range tasks {
+		if task.Name == taskName {
+			return true
+		}
+	}
+	return false
 }
 
 // triggerDiscovery causes a Consul discovery to begin (if one hasn't already)
@@ -2594,12 +2692,11 @@ func (c *Client) emitStats() {
 			next.Reset(c.config.StatsCollectionInterval)
 			if err != nil {
 				c.logger.Warn("error fetching host resource usage stats", "error", err)
-				continue
-			}
-
-			// Publish Node metrics if operator has opted in
-			if c.config.PublishNodeMetrics {
-				c.emitHostStats()
+			} else {
+				// Publish Node metrics if operator has opted in
+				if c.config.PublishNodeMetrics {
+					c.emitHostStats()
+				}
 			}
 
 			c.emitClientMetrics()
@@ -2767,12 +2864,15 @@ func (c *Client) setGaugeForUptime(hStats *stats.HostStats, baseLabels []metrics
 func (c *Client) emitHostStats() {
 	nodeID := c.NodeID()
 	hStats := c.hostStatsCollector.Stats()
-	node := c.Node()
 
-	node.Canonicalize()
+	c.configLock.RLock()
+	nodeStatus := c.configCopy.Node.Status
+	nodeEligibility := c.configCopy.Node.SchedulingEligibility
+	c.configLock.RUnlock()
+
 	labels := append(c.baseLabels,
-		metrics.Label{Name: "node_status", Value: node.Status},
-		metrics.Label{Name: "node_scheduling_eligibility", Value: node.SchedulingEligibility},
+		metrics.Label{Name: "node_status", Value: nodeStatus},
+		metrics.Label{Name: "node_scheduling_eligibility", Value: nodeEligibility},
 	)
 
 	c.setGaugeForMemoryStats(nodeID, hStats, labels)

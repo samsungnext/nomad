@@ -16,6 +16,7 @@ import (
 	"github.com/NYTimes/gziphandler"
 	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/websocket"
+	"github.com/hashicorp/go-connlimit"
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/helper/tlsutil"
 	"github.com/hashicorp/nomad/nomad/structs"
@@ -41,9 +42,10 @@ var (
 
 	// allowCORS sets permissive CORS headers for a handler
 	allowCORS = cors.New(cors.Options{
-		AllowedOrigins: []string{"*"},
-		AllowedMethods: []string{"HEAD", "GET"},
-		AllowedHeaders: []string{"*"},
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"HEAD", "GET"},
+		AllowedHeaders:   []string{"*"},
+		AllowCredentials: true,
 	})
 )
 
@@ -111,12 +113,100 @@ func NewHTTPServer(agent *Agent, config *Config) (*HTTPServer, error) {
 		return nil, err
 	}
 
+	// Get connection handshake timeout limit
+	handshakeTimeout, err := time.ParseDuration(config.Limits.HTTPSHandshakeTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing https_handshake_timeout: %v", err)
+	} else if handshakeTimeout < 0 {
+		return nil, fmt.Errorf("https_handshake_timeout must be >= 0")
+	}
+
+	// Get max connection limit
+	maxConns := 0
+	if mc := config.Limits.HTTPMaxConnsPerClient; mc != nil {
+		maxConns = *mc
+	}
+	if maxConns < 0 {
+		return nil, fmt.Errorf("http_max_conns_per_client must be >= 0")
+	}
+
+	// Create HTTP server with timeouts
+	httpServer := http.Server{
+		Addr:      srv.Addr,
+		Handler:   gzip(mux),
+		ConnState: makeConnState(config.TLSConfig.EnableHTTP, handshakeTimeout, maxConns),
+	}
+
 	go func() {
 		defer close(srv.listenerCh)
-		http.Serve(ln, gzip(mux))
+		httpServer.Serve(ln)
 	}()
 
 	return srv, nil
+}
+
+// makeConnState returns a ConnState func for use in an http.Server. If
+// isTLS=true and handshakeTimeout>0 then the handshakeTimeout will be applied
+// as a connection deadline to new connections and removed when the connection
+// is active (meaning it has successfully completed the TLS handshake).
+//
+// If limit > 0, a per-address connection limit will be enabled regardless of
+// TLS. If connLimit == 0 there is no connection limit.
+func makeConnState(isTLS bool, handshakeTimeout time.Duration, connLimit int) func(conn net.Conn, state http.ConnState) {
+	if !isTLS || handshakeTimeout == 0 {
+		if connLimit > 0 {
+			// Still return the connection limiter
+			return connlimit.NewLimiter(connlimit.Config{
+				MaxConnsPerClientIP: connLimit,
+			}).HTTPConnStateFunc()
+		}
+
+		return nil
+	}
+
+	if connLimit > 0 {
+		// Return conn state callback with connection limiting and a
+		// handshake timeout.
+
+		connLimiter := connlimit.NewLimiter(connlimit.Config{
+			MaxConnsPerClientIP: connLimit,
+		}).HTTPConnStateFunc()
+
+		return func(conn net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				// Set deadline to prevent slow send before TLS handshake or first
+				// byte of request.
+				conn.SetDeadline(time.Now().Add(handshakeTimeout))
+			case http.StateActive:
+				// Clear read deadline. We should maybe set read timeouts more
+				// generally but that's a bigger task as some HTTP endpoints may
+				// stream large requests and responses (e.g. snapshot) so we can't
+				// set sensible blanket timeouts here.
+				conn.SetDeadline(time.Time{})
+			}
+
+			// Call connection limiter
+			connLimiter(conn, state)
+		}
+	}
+
+	// Return conn state callback with just a handshake timeout
+	// (connection limiting disabled).
+	return func(conn net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			// Set deadline to prevent slow send before TLS handshake or first
+			// byte of request.
+			conn.SetDeadline(time.Now().Add(handshakeTimeout))
+		case http.StateActive:
+			// Clear read deadline. We should maybe set read timeouts more
+			// generally but that's a bigger task as some HTTP endpoints may
+			// stream large requests and responses (e.g. snapshot) so we can't
+			// set sensible blanket timeouts here.
+			conn.SetDeadline(time.Time{})
+		}
+	}
 }
 
 // tcpKeepAliveListener sets TCP keep-alive timeouts on accepted
@@ -183,6 +273,9 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 	s.mux.HandleFunc("/v1/agent/servers", s.wrap(s.AgentServersRequest))
 	s.mux.HandleFunc("/v1/agent/keyring/", s.wrap(s.KeyringOperationRequest))
 	s.mux.HandleFunc("/v1/agent/health", s.wrap(s.HealthRequest))
+	s.mux.HandleFunc("/v1/agent/monitor", s.wrap(s.AgentMonitor))
+
+	s.mux.HandleFunc("/v1/agent/pprof/", s.wrapNonJSON(s.AgentPprofRequest))
 
 	s.mux.HandleFunc("/v1/metrics", s.wrap(s.MetricsRequest))
 
@@ -212,9 +305,12 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 			w.Write([]byte(stubHTML))
 		})
 	}
-	s.mux.Handle("/", handleRootRedirect())
+	s.mux.Handle("/", handleRootFallthrough())
 
 	if enableDebug {
+		if !s.agent.config.DevMode {
+			s.logger.Warn("enable_debug is set to true. This is insecure and should not be enabled in production")
+		}
 		s.mux.HandleFunc("/debug/pprof/", pprof.Index)
 		s.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 		s.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
@@ -274,10 +370,13 @@ func handleUI(h http.Handler) http.Handler {
 	})
 }
 
-func handleRootRedirect() http.Handler {
+func handleRootFallthrough() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		http.Redirect(w, req, "/ui/", 307)
-		return
+		if req.URL.Path == "/" {
+			http.Redirect(w, req, "/ui/", 307)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
 	})
 }
 
@@ -300,6 +399,9 @@ func (s *HTTPServer) wrap(handler func(resp http.ResponseWriter, req *http.Reque
 			errMsg := err.Error()
 			if http, ok := err.(HTTPCodedError); ok {
 				code = http.Code()
+			} else if ecode, emsg, ok := structs.CodeFromRPCCodedErr(err); ok {
+				code = ecode
+				errMsg = emsg
 			} else {
 				// RPC errors get wrapped, so manually unwrap by only looking at their suffix
 				if strings.HasSuffix(errMsg, structs.ErrPermissionDenied.Error()) {
@@ -342,6 +444,55 @@ func (s *HTTPServer) wrap(handler func(resp http.ResponseWriter, req *http.Reque
 			}
 			resp.Header().Set("Content-Type", "application/json")
 			resp.Write(buf.Bytes())
+		}
+	}
+	return f
+}
+
+// wrapNonJSON is used to wrap functions returning non JSON
+// serializeable data to make them more convenient. It is primarily
+// responsible for setting nomad headers and logging.
+// Handler functions are responsible for setting Content-Type Header
+func (s *HTTPServer) wrapNonJSON(handler func(resp http.ResponseWriter, req *http.Request) ([]byte, error)) func(resp http.ResponseWriter, req *http.Request) {
+	f := func(resp http.ResponseWriter, req *http.Request) {
+		setHeaders(resp, s.agent.config.HTTPAPIResponseHeaders)
+		// Invoke the handler
+		reqURL := req.URL.String()
+		start := time.Now()
+		defer func() {
+			s.logger.Debug("request complete", "method", req.Method, "path", reqURL, "duration", time.Now().Sub(start))
+		}()
+		obj, err := handler(resp, req)
+
+		// Check for an error
+		if err != nil {
+			code := 500
+			errMsg := err.Error()
+			if http, ok := err.(HTTPCodedError); ok {
+				code = http.Code()
+			} else if ecode, emsg, ok := structs.CodeFromRPCCodedErr(err); ok {
+				code = ecode
+				errMsg = emsg
+			} else {
+				// RPC errors get wrapped, so manually unwrap by only looking at their suffix
+				if strings.HasSuffix(errMsg, structs.ErrPermissionDenied.Error()) {
+					errMsg = structs.ErrPermissionDenied.Error()
+					code = 403
+				} else if strings.HasSuffix(errMsg, structs.ErrTokenNotFound.Error()) {
+					errMsg = structs.ErrTokenNotFound.Error()
+					code = 403
+				}
+			}
+
+			resp.WriteHeader(code)
+			resp.Write([]byte(errMsg))
+			s.logger.Error("request failed", "method", req.Method, "path", reqURL, "error", err, "code", code)
+			return
+		}
+
+		// write response
+		if obj != nil {
+			resp.Write(obj)
 		}
 	}
 	return f

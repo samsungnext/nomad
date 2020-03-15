@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -55,6 +56,18 @@ type Config struct {
 
 	// LogJson enables log output in a JSON format
 	LogJson bool `hcl:"log_json"`
+
+	// LogFile enables logging to a file
+	LogFile string `hcl:"log_file"`
+
+	// LogRotateDuration is the time period that logs should be rotated in
+	LogRotateDuration string `hcl:"log_rotate_duration"`
+
+	// LogRotateBytes is the max number of bytes that should be written to a file
+	LogRotateBytes int `hcl:"log_rotate_bytes"`
+
+	// LogRotateMaxFiles is the max number of log files to keep
+	LogRotateMaxFiles int `hcl:"log_rotate_max_files"`
 
 	// BindAddr is the address on which all of nomad's services will
 	// be bound. If not specified, this defaults to 127.0.0.1.
@@ -152,6 +165,9 @@ type Config struct {
 
 	// Plugins is the set of configured plugins
 	Plugins []*config.PluginConfig `hcl:"plugin"`
+
+	// Limits contains the configuration for timeouts.
+	Limits config.Limits `hcl:"limits"`
 
 	// ExtraKeysHCL is used by hcl to surface unexpected keys
 	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
@@ -257,9 +273,6 @@ type ClientConfig struct {
 	// available to jobs running on this node.
 	HostVolumes []*structs.ClientHostVolumeConfig `hcl:"host_volume"`
 
-	// ExtraKeysHCL is used by hcl to surface unexpected keys
-	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
-
 	// CNIPath is the path to search for CNI plugins, multiple paths can be
 	// specified colon delimited
 	CNIPath string `hcl:"cni_path"`
@@ -272,6 +285,9 @@ type ClientConfig struct {
 	// creating allocations with bridge networking mode. This range is local to
 	// the host
 	BridgeNetworkSubnet string `hcl:"bridge_network_subnet"`
+
+	// ExtraKeysHCL is used by hcl to surface unexpected keys
+	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
 }
 
 // ClientTemplateConfig is configuration on the client specific to template
@@ -439,6 +455,11 @@ type ServerConfig struct {
 
 	// ServerJoin contains information that is used to attempt to join servers
 	ServerJoin *ServerJoin `hcl:"server_join"`
+
+	// DefaultSchedulerConfig configures the initial scheduler config to be persisted in Raft.
+	// Once the cluster is bootstrapped, and Raft persists the config (from here or through API),
+	// This value is ignored.
+	DefaultSchedulerConfig *structs.SchedulerConfiguration `hcl:"default_scheduler_config"`
 
 	// ExtraKeysHCL is used by hcl to surface unexpected keys
 	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
@@ -717,6 +738,10 @@ func newDevModeConfig(devMode, connectMode bool) (*devModeConfig, error) {
 			return nil, fmt.Errorf(
 				"-dev-connect uses network namespaces and is only supported for root.")
 		}
+		// Ensure Consul is on PATH
+		if _, err := exec.LookPath("consul"); err != nil {
+			return nil, fmt.Errorf("-dev-connect requires a 'consul' binary in Nomad's $PATH")
+		}
 		mode.connectMode = true
 	}
 	err := mode.networkConfig()
@@ -765,7 +790,8 @@ func DevConfig(mode *devModeConfig) *Config {
 	conf.LogLevel = "DEBUG"
 	conf.Client.Enabled = true
 	conf.Server.Enabled = true
-	conf.DevMode = mode != nil
+	conf.DevMode = true
+	conf.Server.BootstrapExpect = 1
 	conf.EnableDebug = true
 	conf.DisableAnonymousSignature = true
 	conf.Consul.AutoAdvertise = helper.BoolToPtr(true)
@@ -857,6 +883,7 @@ func DefaultConfig() *Config {
 		Version:            version.GetVersion(),
 		Autopilot:          config.DefaultAutopilotConfig(),
 		DisableUpdateCheck: helper.BoolToPtr(false),
+		Limits:             config.DefaultLimits(),
 	}
 }
 
@@ -909,6 +936,18 @@ func (c *Config) Merge(b *Config) *Config {
 	}
 	if b.LogJson {
 		result.LogJson = true
+	}
+	if b.LogFile != "" {
+		result.LogFile = b.LogFile
+	}
+	if b.LogRotateDuration != "" {
+		result.LogRotateDuration = b.LogRotateDuration
+	}
+	if b.LogRotateBytes != 0 {
+		result.LogRotateBytes = b.LogRotateBytes
+	}
+	if b.LogRotateMaxFiles != 0 {
+		result.LogRotateMaxFiles = b.LogRotateMaxFiles
 	}
 	if b.BindAddr != "" {
 		result.BindAddr = b.BindAddr
@@ -1048,6 +1087,8 @@ func (c *Config) Merge(b *Config) *Config {
 	for k, v := range b.HTTPAPIResponseHeaders {
 		result.HTTPAPIResponseHeaders[k] = v
 	}
+
+	result.Limits = c.Limits.Merge(b.Limits)
 
 	return &result
 }
@@ -1328,6 +1369,11 @@ func (a *ServerConfig) Merge(b *ServerConfig) *ServerConfig {
 		result.ServerJoin = result.ServerJoin.Merge(b.ServerJoin)
 	}
 
+	if b.DefaultSchedulerConfig != nil {
+		c := *b.DefaultSchedulerConfig
+		result.DefaultSchedulerConfig = &c
+	}
+
 	// Add the schedulers
 	result.EnabledSchedulers = append(result.EnabledSchedulers, b.EnabledSchedulers...)
 
@@ -1456,6 +1502,16 @@ func (a *ClientConfig) Merge(b *ClientConfig) *ClientConfig {
 		result.HostVolumes = structs.CopySliceClientHostVolumeConfig(b.HostVolumes)
 	} else if len(b.HostVolumes) != 0 {
 		result.HostVolumes = structs.HostVolumeSliceMerge(a.HostVolumes, b.HostVolumes)
+	}
+
+	if b.CNIPath != "" {
+		result.CNIPath = b.CNIPath
+	}
+	if b.BridgeNetworkName != "" {
+		result.BridgeNetworkName = b.BridgeNetworkName
+	}
+	if b.BridgeNetworkSubnet != "" {
+		result.BridgeNetworkSubnet = b.BridgeNetworkSubnet
 	}
 
 	return &result

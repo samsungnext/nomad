@@ -3,7 +3,7 @@ import { currentURL } from '@ember/test-helpers';
 import { assign } from '@ember/polyfills';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import Allocation from 'nomad-ui/tests/pages/allocations/detail';
 import moment from 'moment';
 
@@ -88,30 +88,48 @@ module('Acceptance | allocation detail', function(hooks) {
       .sortBy('name')[0];
     const reservedPorts = taskResources.resources.Networks[0].ReservedPorts;
     const dynamicPorts = taskResources.resources.Networks[0].DynamicPorts;
-    const taskRow = Allocation.tasks.objectAt(0);
     const events = server.db.taskEvents.where({ taskStateId: task.id });
     const event = events[events.length - 1];
 
-    assert.equal(taskRow.name, task.name, 'Name');
-    assert.equal(taskRow.state, task.state, 'State');
-    assert.equal(taskRow.message, event.displayMessage, 'Event Message');
-    assert.equal(
-      taskRow.time,
-      moment(event.time / 1000000).format("MMM DD, 'YY HH:mm:ss ZZ"),
-      'Event Time'
-    );
+    const taskGroup = server.schema.taskGroups.where({
+      jobId: allocation.jobId,
+      name: allocation.taskGroup,
+    }).models[0];
 
-    assert.ok(reservedPorts.length, 'The task has reserved ports');
-    assert.ok(dynamicPorts.length, 'The task has dynamic ports');
+    const jobTask = taskGroup.tasks.models.find(m => m.name === task.name);
+    const volumes = jobTask.volumeMounts.map(volume => ({
+      name: volume.Volume,
+      source: taskGroup.volumes[volume.Volume].Source,
+    }));
 
-    const addressesText = taskRow.ports;
-    reservedPorts.forEach(port => {
-      assert.ok(addressesText.includes(port.Label), `Found label ${port.Label}`);
-      assert.ok(addressesText.includes(port.Value), `Found value ${port.Value}`);
-    });
-    dynamicPorts.forEach(port => {
-      assert.ok(addressesText.includes(port.Label), `Found label ${port.Label}`);
-      assert.ok(addressesText.includes(port.Value), `Found value ${port.Value}`);
+    Allocation.tasks[0].as(taskRow => {
+      assert.equal(taskRow.name, task.name, 'Name');
+      assert.equal(taskRow.state, task.state, 'State');
+      assert.equal(taskRow.message, event.displayMessage, 'Event Message');
+      assert.equal(
+        taskRow.time,
+        moment(event.time / 1000000).format("MMM DD, 'YY HH:mm:ss ZZ"),
+        'Event Time'
+      );
+
+      assert.ok(reservedPorts.length, 'The task has reserved ports');
+      assert.ok(dynamicPorts.length, 'The task has dynamic ports');
+
+      const addressesText = taskRow.ports;
+      reservedPorts.forEach(port => {
+        assert.ok(addressesText.includes(port.Label), `Found label ${port.Label}`);
+        assert.ok(addressesText.includes(port.Value), `Found value ${port.Value}`);
+      });
+      dynamicPorts.forEach(port => {
+        assert.ok(addressesText.includes(port.Label), `Found label ${port.Label}`);
+        assert.ok(addressesText.includes(port.Value), `Found value ${port.Value}`);
+      });
+
+      const volumesText = taskRow.volumes;
+      volumes.forEach(volume => {
+        assert.ok(volumesText.includes(volume.name), `Found label ${volume.name}`);
+        assert.ok(volumesText.includes(volume.source), `Found value ${volume.source}`);
+      });
     });
   });
 
@@ -141,14 +159,22 @@ module('Acceptance | allocation detail', function(hooks) {
   });
 
   test('proxy task has a proxy tag', async function(assert) {
-    allocation = server.create('allocation', 'withTaskWithPorts', 'withAllocatedResources', {
-      clientStatus: 'running',
+    // Must create a new job as existing one has loaded and it contains the tasks
+    job = server.create('job', {
+      groupsCount: 1,
+      withGroupServices: true,
+      createAllocations: false,
     });
 
-    allocation.task_states.models.forEach(task => {
-      task.kind = 'connect-proxy:task';
-      task.save();
+    allocation = server.create('allocation', 'withTaskWithPorts', 'withAllocatedResources', {
+      clientStatus: 'running',
+      jobId: job.id,
     });
+
+    const taskState = allocation.task_states.models.sortBy('name')[0];
+    const task = server.schema.tasks.findBy({ name: taskState.name });
+    task.update('kind', 'connect-proxy:task');
+    task.save();
 
     await Allocation.visit({ id: allocation.id });
 
@@ -211,7 +237,9 @@ module('Acceptance | allocation detail', function(hooks) {
     await Allocation.visit({ id: 'not-a-real-allocation' });
 
     assert.equal(
-      server.pretender.handledRequests.findBy('status', 404).url,
+      server.pretender.handledRequests
+        .filter(request => !request.url.includes('policy'))
+        .findBy('status', 404).url,
       '/v1/allocation/not-a-real-allocation',
       'A request to the nonexistent allocation is made'
     );

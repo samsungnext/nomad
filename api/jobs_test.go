@@ -99,6 +99,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				ParentID:          stringToPtr(""),
 				Priority:          intToPtr(50),
 				AllAtOnce:         boolToPtr(false),
+				ConsulToken:       stringToPtr(""),
 				VaultToken:        stringToPtr(""),
 				Status:            stringToPtr(""),
 				StatusDescription: stringToPtr(""),
@@ -186,6 +187,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				ParentID:          stringToPtr(""),
 				Priority:          intToPtr(50),
 				AllAtOnce:         boolToPtr(false),
+				ConsulToken:       stringToPtr(""),
 				VaultToken:        stringToPtr(""),
 				Status:            stringToPtr(""),
 				StatusDescription: stringToPtr(""),
@@ -256,6 +258,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				ParentID:          stringToPtr("lol"),
 				Priority:          intToPtr(50),
 				AllAtOnce:         boolToPtr(false),
+				ConsulToken:       stringToPtr(""),
 				VaultToken:        stringToPtr(""),
 				Stop:              boolToPtr(false),
 				Stable:            boolToPtr(false),
@@ -399,7 +402,6 @@ func TestJobs_Canonicalize(t *testing.T) {
 										EmbeddedTmpl: stringToPtr("FOO=bar\n"),
 										DestPath:     stringToPtr("local/file.env"),
 										Envvars:      boolToPtr(true),
-										VaultGrace:   timeToPtr(3 * time.Second),
 									},
 								},
 							},
@@ -416,6 +418,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				Region:            stringToPtr("global"),
 				Type:              stringToPtr("service"),
 				AllAtOnce:         boolToPtr(false),
+				ConsulToken:       stringToPtr(""),
 				VaultToken:        stringToPtr(""),
 				Stop:              boolToPtr(false),
 				Stable:            boolToPtr(false),
@@ -528,7 +531,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 										LeftDelim:    stringToPtr("{{"),
 										RightDelim:   stringToPtr("}}"),
 										Envvars:      boolToPtr(false),
-										VaultGrace:   timeToPtr(15 * time.Second),
+										VaultGrace:   timeToPtr(0),
 									},
 									{
 										SourcePath:   stringToPtr(""),
@@ -541,7 +544,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 										LeftDelim:    stringToPtr("{{"),
 										RightDelim:   stringToPtr("}}"),
 										Envvars:      boolToPtr(true),
-										VaultGrace:   timeToPtr(3 * time.Second),
+										VaultGrace:   timeToPtr(0),
 									},
 								},
 							},
@@ -566,6 +569,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				Type:              stringToPtr("service"),
 				Priority:          intToPtr(50),
 				AllAtOnce:         boolToPtr(false),
+				ConsulToken:       stringToPtr(""),
 				VaultToken:        stringToPtr(""),
 				Stop:              boolToPtr(false),
 				Stable:            boolToPtr(false),
@@ -650,6 +654,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				ParentID:          stringToPtr("lol"),
 				Priority:          intToPtr(50),
 				AllAtOnce:         boolToPtr(false),
+				ConsulToken:       stringToPtr(""),
 				VaultToken:        stringToPtr(""),
 				Stop:              boolToPtr(false),
 				Stable:            boolToPtr(false),
@@ -846,13 +851,13 @@ func TestJobs_Revert(t *testing.T) {
 	assertWriteMeta(t, wm)
 
 	// Fail revert at incorrect enforce
-	_, _, err = jobs.Revert(*job.ID, 0, uint64ToPtr(10), nil, "")
+	_, _, err = jobs.Revert(*job.ID, 0, uint64ToPtr(10), nil, "", "")
 	if err == nil || !strings.Contains(err.Error(), "enforcing version") {
 		t.Fatalf("expected enforcement error: %v", err)
 	}
 
 	// Works at correct index
-	revertResp, wm, err := jobs.Revert(*job.ID, 0, uint64ToPtr(1), nil, "")
+	revertResp, wm, err := jobs.Revert(*job.ID, 0, uint64ToPtr(1), nil, "", "")
 	if err != nil {
 		t.Fatalf("err: %s", err)
 	}
@@ -876,13 +881,15 @@ func TestJobs_Info(t *testing.T) {
 
 	// Trying to retrieve a job by ID before it exists
 	// returns an error
-	_, _, err := jobs.Info("job1", nil)
+	id := "job-id/with\\troublesome:characters\n?&字\000"
+	_, _, err := jobs.Info(id, nil)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not found error, got: %#v", err)
 	}
 
 	// Register the job
 	job := testJob()
+	job.ID = &id
 	_, wm, err := jobs.Register(job, nil)
 	if err != nil {
 		t.Fatalf("err: %s", err)
@@ -890,7 +897,7 @@ func TestJobs_Info(t *testing.T) {
 	assertWriteMeta(t, wm)
 
 	// Query the job again and ensure it exists
-	result, qm, err := jobs.Info("job1", nil)
+	result, qm, err := jobs.Info(id, nil)
 	if err != nil {
 		t.Fatalf("err: %s", err)
 	}

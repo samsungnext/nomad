@@ -225,7 +225,11 @@ func (c *TelemetryConfig) MergeDefaults(defaults *TelemetryConfig) {
 				continue
 			}
 		case reflect.Bool:
+<<<<<<< HEAD
 			if f.Bool() != false {
+=======
+			if f.Bool() {
+>>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 				continue
 			}
 		default:

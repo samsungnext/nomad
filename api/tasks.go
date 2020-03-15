@@ -217,6 +217,19 @@ func NewDefaultReschedulePolicy(jobType string) *ReschedulePolicy {
 			MaxDelay:      timeToPtr(0),
 			Unlimited:     boolToPtr(false),
 		}
+
+	default:
+		// GH-7203: it is possible an unknown job type is passed to this
+		// function and we need to ensure a non-nil object is returned so that
+		// the canonicalization runs without panicking.
+		dp = &ReschedulePolicy{
+			Attempts:      intToPtr(0),
+			Interval:      timeToPtr(0),
+			Delay:         timeToPtr(0),
+			DelayFunction: stringToPtr(""),
+			MaxDelay:      timeToPtr(0),
+			Unlimited:     boolToPtr(false),
+		}
 	}
 	return dp
 }
@@ -366,17 +379,32 @@ func (m *MigrateStrategy) Copy() *MigrateStrategy {
 type VolumeRequest struct {
 	Name     string
 	Type     string
+	Source   string
 	ReadOnly bool `mapstructure:"read_only"`
-
-	Config map[string]interface{}
 }
+
+const (
+	VolumeMountPropagationPrivate       = "private"
+	VolumeMountPropagationHostToTask    = "host-to-task"
+	VolumeMountPropagationBidirectional = "bidirectional"
+)
 
 // VolumeMount represents the relationship between a destination path in a task
 // and the task group volume that should be mounted there.
 type VolumeMount struct {
-	Volume      string
-	Destination string
-	ReadOnly    bool `mapstructure:"read_only"`
+	Volume          *string
+	Destination     *string
+	ReadOnly        *bool   `mapstructure:"read_only"`
+	PropagationMode *string `mapstructure:"propagation_mode"`
+}
+
+func (vm *VolumeMount) Canonicalize() {
+	if vm.PropagationMode == nil {
+		vm.PropagationMode = stringToPtr(VolumeMountPropagationPrivate)
+	}
+	if vm.ReadOnly == nil {
+		vm.ReadOnly = boolToPtr(false)
+	}
 }
 
 // TaskGroup is the unit of scheduling.
@@ -396,6 +424,7 @@ type TaskGroup struct {
 	Networks         []*NetworkResource
 	Meta             map[string]string
 	Services         []*Service
+	ShutdownDelay    *time.Duration `mapstructure:"shutdown_delay"`
 }
 
 // NewTaskGroup creates a new TaskGroup.
@@ -643,6 +672,9 @@ func (t *Task) Canonicalize(tg *TaskGroup, job *Job) {
 	for _, a := range t.Affinities {
 		a.Canonicalize()
 	}
+	for _, vm := range t.VolumeMounts {
+		vm.Canonicalize()
+	}
 }
 
 // TaskArtifact is used to download artifacts before running a task.
@@ -728,8 +760,10 @@ func (tmpl *Template) Canonicalize() {
 	if tmpl.Envvars == nil {
 		tmpl.Envvars = boolToPtr(false)
 	}
+
+	//COMPAT(0.12) VaultGrace is deprecated and unused as of Vault 0.5
 	if tmpl.VaultGrace == nil {
-		tmpl.VaultGrace = timeToPtr(15 * time.Second)
+		tmpl.VaultGrace = timeToPtr(0)
 	}
 }
 

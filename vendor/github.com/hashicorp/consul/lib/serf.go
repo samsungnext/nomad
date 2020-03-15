@@ -1,6 +1,8 @@
 package lib
 
 import (
+	"time"
+
 	"github.com/hashicorp/serf/serf"
 	"time"
 )

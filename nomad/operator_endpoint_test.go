@@ -6,9 +6,13 @@ import (
 	"strings"
 	"testing"
 
+<<<<<<< HEAD
 	"github.com/hashicorp/consul/sdk/freeport"
+=======
+>>>>>>> 240b09bc5b01223a1e23df45e12a6b41dfb52f19
 	msgpackrpc "github.com/hashicorp/net-rpc-msgpackrpc"
 	"github.com/hashicorp/nomad/acl"
+	"github.com/hashicorp/nomad/helper/freeport"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
@@ -19,8 +23,9 @@ import (
 
 func TestOperator_RaftGetConfiguration(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -62,8 +67,9 @@ func TestOperator_RaftGetConfiguration(t *testing.T) {
 
 func TestOperator_RaftGetConfiguration_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -125,16 +131,20 @@ func TestOperator_RaftGetConfiguration_ACL(t *testing.T) {
 
 func TestOperator_RaftRemovePeerByAddress(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.RaftConfig.ProtocolVersion = raft.ProtocolVersion(2)
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
+	ports := freeport.MustTake(1)
+	defer freeport.Return(ports)
+
 	// Try to remove a peer that's not there.
 	arg := structs.RaftPeerByAddressRequest{
-		Address: raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", freeport.GetT(t, 1)[0])),
+		Address: raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", ports[0])),
 	}
 	arg.Region = s1.config.Region
 	var reply struct{}
@@ -183,11 +193,12 @@ func TestOperator_RaftRemovePeerByAddress(t *testing.T) {
 
 func TestOperator_RaftRemovePeerByAddress_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, func(c *Config) {
+
+	s1, root, cleanupS1 := TestACLServer(t, func(c *Config) {
 		c.RaftConfig.ProtocolVersion = raft.ProtocolVersion(2)
 	})
 
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -196,8 +207,11 @@ func TestOperator_RaftRemovePeerByAddress_ACL(t *testing.T) {
 	// Create ACL token
 	invalidToken := mock.CreatePolicyAndToken(t, state, 1001, "test-invalid", mock.NodePolicy(acl.PolicyWrite))
 
+	ports := freeport.MustTake(1)
+	defer freeport.Return(ports)
+
 	arg := structs.RaftPeerByAddressRequest{
-		Address: raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", freeport.GetT(t, 1)[0])),
+		Address: raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", ports[0])),
 	}
 	arg.Region = s1.config.Region
 
@@ -234,10 +248,11 @@ func TestOperator_RaftRemovePeerByAddress_ACL(t *testing.T) {
 
 func TestOperator_RaftRemovePeerByID(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.RaftConfig.ProtocolVersion = 3
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -252,9 +267,12 @@ func TestOperator_RaftRemovePeerByID(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 
+	ports := freeport.MustTake(1)
+	defer freeport.Return(ports)
+
 	// Add it manually to Raft.
 	{
-		future := s1.raft.AddVoter(arg.ID, raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", freeport.GetT(t, 1)[0])), 0, 0)
+		future := s1.raft.AddVoter(arg.ID, raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", ports[0])), 0, 0)
 		if err := future.Error(); err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -292,10 +310,11 @@ func TestOperator_RaftRemovePeerByID(t *testing.T) {
 
 func TestOperator_RaftRemovePeerByID_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, func(c *Config) {
+
+	s1, root, cleanupS1 := TestACLServer(t, func(c *Config) {
 		c.RaftConfig.ProtocolVersion = 3
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -309,9 +328,12 @@ func TestOperator_RaftRemovePeerByID_ACL(t *testing.T) {
 	}
 	arg.Region = s1.config.Region
 
+	ports := freeport.MustTake(1)
+	defer freeport.Return(ports)
+
 	// Add peer manually to Raft.
 	{
-		future := s1.raft.AddVoter(arg.ID, raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", freeport.GetT(t, 1)[0])), 0, 0)
+		future := s1.raft.AddVoter(arg.ID, raft.ServerAddress(fmt.Sprintf("127.0.0.1:%d", ports[0])), 0, 0)
 		assert.Nil(future.Error())
 	}
 
@@ -342,10 +364,11 @@ func TestOperator_RaftRemovePeerByID_ACL(t *testing.T) {
 
 func TestOperator_SchedulerGetConfiguration(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.Build = "0.9.0+unittest"
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -365,10 +388,11 @@ func TestOperator_SchedulerGetConfiguration(t *testing.T) {
 
 func TestOperator_SchedulerSetConfiguration(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.Build = "0.9.0+unittest"
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -406,11 +430,12 @@ func TestOperator_SchedulerSetConfiguration(t *testing.T) {
 
 func TestOperator_SchedulerGetConfiguration_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, func(c *Config) {
+
+	s1, root, cleanupS1 := TestACLServer(t, func(c *Config) {
 		c.RaftConfig.ProtocolVersion = 3
 		c.Build = "0.9.0+unittest"
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	state := s1.fsm.State()
@@ -452,11 +477,12 @@ func TestOperator_SchedulerGetConfiguration_ACL(t *testing.T) {
 
 func TestOperator_SchedulerSetConfiguration_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, func(c *Config) {
+
+	s1, root, cleanupS1 := TestACLServer(t, func(c *Config) {
 		c.RaftConfig.ProtocolVersion = 3
 		c.Build = "0.9.0+unittest"
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	state := s1.fsm.State()

@@ -97,16 +97,18 @@ type ServiceCheck struct {
 // Service represents a Consul service definition.
 type Service struct {
 	//FIXME Id is unused. Remove?
-	Id           string
-	Name         string
-	Tags         []string
-	CanaryTags   []string `mapstructure:"canary_tags"`
-	PortLabel    string   `mapstructure:"port"`
-	AddressMode  string   `mapstructure:"address_mode"`
-	Checks       []ServiceCheck
-	CheckRestart *CheckRestart `mapstructure:"check_restart"`
-	Connect      *ConsulConnect
-	Meta         map[string]string
+	Id                string
+	Name              string
+	Tags              []string
+	CanaryTags        []string `mapstructure:"canary_tags"`
+	EnableTagOverride bool     `mapstructure:"enable_tag_override"`
+	PortLabel         string   `mapstructure:"port"`
+	AddressMode       string   `mapstructure:"address_mode"`
+	Checks            []ServiceCheck
+	CheckRestart      *CheckRestart `mapstructure:"check_restart"`
+	Connect           *ConsulConnect
+	Meta              map[string]string
+	CanaryMeta        map[string]string
 }
 
 // Canonicalize the Service by ensuring its name and address mode are set. Task
@@ -143,6 +145,7 @@ type ConsulConnect struct {
 // ConsulSidecarService represents a Consul Connect SidecarService jobspec
 // stanza.
 type ConsulSidecarService struct {
+	Tags  []string
 	Port  string
 	Proxy *ConsulProxy
 }
@@ -165,8 +168,10 @@ type SidecarTask struct {
 
 // ConsulProxy represents a Consul Connect sidecar proxy jobspec stanza.
 type ConsulProxy struct {
-	Upstreams []*ConsulUpstream
-	Config    map[string]interface{}
+	LocalServiceAddress string `mapstructure:"local_service_address"`
+	LocalServicePort    int    `mapstructure:"local_service_port"`
+	Upstreams           []*ConsulUpstream
+	Config              map[string]interface{}
 }
 
 // ConsulUpstream represents a Consul Connect upstream jobspec stanza.

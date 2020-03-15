@@ -1,3 +1,80 @@
+## v0.24.1 (Jan 24, 2020)
+
+BUG FIXES:
+
+* Make user non-numeric to satisfy PSP [GH-1332](https://github.com/hashicorp/consul-template/pull/1332)
+* fatal error: PowerRegisterSuspendResumeNotification failure on windows [GH-1335](https://github.com/hashicorp/consul-template/issues/1335)
+
+## v0.24.0 (Jan 08, 2020)
+
+BREAKING CHANGES:
+
+* Alpine Docker image no longer runs as root and so doesn't change ownership of the /consul-template/data and /consul-template/config directories to the consul-template user. See the [Docker Image Use](https://github.com/hashicorp/consul-template#docker-image-use) topic in the documentation for more.
+
+BUG FIXES:
+
+* arm builds are linked against wrong library [[GH-1317](https://github.com/hashicorp/consul-template/issues/1317), [GH-1326](https://github.com/hashicorp/consul-template/pull/1326)]
+* consul-template container runs as root - breaks CISO compliance [[GH-1321](https://github.com/hashicorp/consul-template/issues/1321), [GH-1324](https://github.com/hashicorp/consul-template/pull/1324)]
+* 'sockaddr' function returning whitespace after address [[GH-1314](https://github.com/hashicorp/consul-template/issues/1314), [GH-1315](https://github.com/hashicorp/consul-template/pull/1315)]
+* runTemplate - DEBUG logging is needed to identify missing dependencies [[GH-1308](https://github.com/hashicorp/consul-template/issues/1308), [GH-1309](https://github.com/hashicorp/consul-template/pull/1309)]
+* Remove code/logic for working with (long deprecated) Vault grace [[GH-1284](https://github.com/hashicorp/consul-template/pull/1284)]
+
+## v0.23.0 (Nov 13, 2019)
+
+IMPROVEMENTS:
+
+* Support Configuring Consul Connect Clients [[GH-1262](https://github.com/hashicorp/consul-template/issues/1262), [GH-1304](https://github.com/hashicorp/consul-template/pull/1304), [GH-1306](https://github.com/hashicorp/consul-template/pull/1306)]
+
+## v0.22.1 (Nov 08, 2019)
+
+SECURITY:
+
+* curl is vulnerable in the latest alpine docker image [[GH-1302](https://github.com/hashicorp/consul-template/issues/1302)]
+
+BUG FIXES:
+
+* fix breaking change for loop [[GH-1285](https://github.com/hashicorp/consul-template/issues/1285)]
+
+## v0.22.0 (September 10, 2019)
+
+IMPROVEMENTS:
+
+* Add rate limiting to consul api calls [[GH-1279](https://github.com/hashicorp/consul-template/pull/1279)]
+* Add `byMeta` function [[GH-1237](https://github.com/hashicorp/consul-template/pull/1237)]
+* Add support for : and = in service tag values [[GH-1149](https://github.com/hashicorp/consul-template/pull/1149), [GH-1049](https://github.com/hashicorp/consul-template/issues/1049)]
+* Add `explodeMap` function [[GH-1148](https://github.com/hashicorp/consul-template/pull/1148)]
+* Don't wait for splay when stopping child runner [[GH-1141](https://github.com/hashicorp/consul-template/pull/1141)]
+* Add `safels` and `safetree` functions [[GH-1132](https://github.com/hashicorp/consul-template/pull/1132)]
+* Support Vault certificates with no lease [[GH-1106](https://github.com/hashicorp/consul-template/pull/1106)]
+* Add wrapper function for go-sockaddr templating [[GH-1087](https://github.com/hashicorp/consul-template/pull/1087)]
+* Build binaries for arm64 platform [[GH-1251](https://github.com/hashicorp/consul-template/pull/1251)]
+
+BUG FIXES:
+
+* Fix arm/arm64 builds by enabling CGO and restricting builds to Linux [workaround for [go/issues/32912](https://github.com/golang/go/issues/32912)]
+
+## v0.21.3 (September 05, 2019)
+
+BUG FIXES:
+
+* Fix regression in non-renewable sleep [[GH-1277](https://github.com/hashicorp/consul-template/pull/1277), [GH-1272](https://github.com/hashicorp/consul-template/issues/1272), [GH-1276](https://github.com/hashicorp/consul-template/issues/1276)]
+
+## v0.21.2 (August 31, 2019)
+
+BUG FIXES:
+
+* Fix regression in backup [[GH-1271](https://github.com/hashicorp/consul-template/pull/1271), [GH-1270](https://github.com/hashicorp/consul-template/issues/1270)]
+
+## v0.21.1 (August 30, 2019)
+
+BUG FIXES:
+
+* Fixed issue in Vault call retry logic [[GH-1269](https://github.com/hashicorp/consul-template/pull/1269), [GH-1224](https://github.com/hashicorp/consul-template/issues/1224)]
+* Fixed race in backup [[GH-1265](https://github.com/hashicorp/consul-template/pull/1265), [GH-1264](https://github.com/hashicorp/consul-template/issues/1264)]
+* Fixed issue when reading deleted secret [[GH-1260](https://github.com/hashicorp/consul-template/pull/1260), [GH-1198](https://github.com/hashicorp/consul-template/issues/1198)]
+* Fix issue with Vault writes [[GH-1257](https://github.com/hashicorp/consul-template/pull/1257), [GH-1252](https://github.com/hashicorp/consul-template/issues/1252)]
+* Fix loop to work with template set integers [[GH-1255](https://github.com/hashicorp/consul-template/pull/1255), [GH-1143](https://github.com/hashicorp/consul-template/issues/1143)]
+
 ## v0.21.0 (August 05, 2019)
 
 IMPROVEMENTS:
@@ -13,7 +90,7 @@ BUG FIXES:
 * Fixed issue with templates not rendering with `-once` [[GH-1227](https://github.com/hashicorp/consul-template/pull/1227), [GH-1196](https://github.com/hashicorp/consul-template/issues/1196), [GH-1207](https://github.com/hashicorp/consul-template/issues/1207)]
 * Fixed regression with ~/.vault-token and with vault_agent_token_file not respecting renew_token [[GH-1228](https://github.com/hashicorp/consul-template/issues/1228), [GH-1189](https://github.com/hashicorp/consul-template/issues/1189)]
 * CA certificates missing from docker 'light' image [[GH-1200](https://github.com/hashicorp/consul-template/issues/1200)]
-* Fixed issue with dedup data garbage in Consul KV [[GH-1158](https://github.com/hashicorp/consul-template/issues/1158), [[GH-1168](https://github.com/hashicorp/consul-template/issues/1168)]
+* Fixed issue with dedup data garbage in Consul KV [[GH-1158](https://github.com/hashicorp/consul-template/issues/1158), [GH-1168](https://github.com/hashicorp/consul-template/issues/1168)]
 * Fixed bad case in import path [[GH-1139](https://github.com/hashicorp/consul-template/issues/1139)]
 * Documented limits on using "." in service names [[GH-1205](https://github.com/hashicorp/consul-template/issues/1205)]
 
