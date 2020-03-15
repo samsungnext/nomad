@@ -1537,6 +1537,13 @@ func TestJobs_ApiJobToStructsJob(t *testing.T) {
 								TaskName: "task1",
 							},
 						},
+						Connect: &api.ConsulConnect{
+							Native: false,
+							SidecarService: &api.ConsulSidecarService{
+								Tags: []string{"f", "g"},
+								Port: "9000",
+							},
+						},
 					},
 				},
 				Tasks: []*api.Task{
@@ -1707,7 +1714,8 @@ func TestJobs_ApiJobToStructsJob(t *testing.T) {
 				},
 			},
 		},
-		VaultToken:        helper.StringToPtr("token"),
+		ConsulToken:       helper.StringToPtr("abc123"),
+		VaultToken:        helper.StringToPtr("def456"),
 		Status:            helper.StringToPtr("status"),
 		StatusDescription: helper.StringToPtr("status_desc"),
 		Version:           helper.Uint64ToPtr(10),
@@ -1875,6 +1883,13 @@ func TestJobs_ApiJobToStructsJob(t *testing.T) {
 									IgnoreWarnings: true,
 								},
 								TaskName: "task1",
+							},
+						},
+						Connect: &structs.ConsulConnect{
+							Native: false,
+							SidecarService: &structs.ConsulSidecarService{
+								Tags: []string{"f", "g"},
+								Port: "9000",
 							},
 						},
 					},
@@ -2046,7 +2061,8 @@ func TestJobs_ApiJobToStructsJob(t *testing.T) {
 			},
 		},
 
-		VaultToken: "token",
+		ConsulToken: "abc123",
+		VaultToken:  "def456",
 	}
 
 	structsJob := ApiJobToStructJob(apiJob)

@@ -1,6 +1,7 @@
 package nomad
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -11,6 +12,8 @@ import (
 	memdb "github.com/hashicorp/go-memdb"
 	msgpackrpc "github.com/hashicorp/net-rpc-msgpackrpc"
 	"github.com/hashicorp/nomad/acl"
+	"github.com/hashicorp/nomad/command/agent/consul"
+	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/state"
@@ -24,8 +27,9 @@ import (
 func TestClientEndpoint_Register(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -151,15 +155,16 @@ func TestClientEndpoint_Register_ACL(t *testing.T) {
 func TestClientEndpoint_Register_NodeConn_Forwarded(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.BootstrapExpect = 2
 	})
 
-	defer s1.Shutdown()
-	s2 := TestServer(t, func(c *Config) {
+	defer cleanupS1()
+	s2, cleanupS2 := TestServer(t, func(c *Config) {
 		c.DevDisableBootstrap = true
 	})
-	defer s2.Shutdown()
+	defer cleanupS2()
 	TestJoin(t, s1, s2)
 	testutil.WaitForLeader(t, s1.RPC)
 	testutil.WaitForLeader(t, s2.RPC)
@@ -240,8 +245,9 @@ func TestClientEndpoint_Register_NodeConn_Forwarded(t *testing.T) {
 
 func TestClientEndpoint_Register_SecretMismatch(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -269,8 +275,9 @@ func TestClientEndpoint_Register_SecretMismatch(t *testing.T) {
 // Test the deprecated single node deregistration path
 func TestClientEndpoint_DeregisterOne(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -314,8 +321,9 @@ func TestClientEndpoint_DeregisterOne(t *testing.T) {
 
 func TestClientEndpoint_Deregister_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -379,8 +387,9 @@ func TestClientEndpoint_Deregister_ACL(t *testing.T) {
 
 func TestClientEndpoint_Deregister_Vault(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -441,8 +450,9 @@ func TestClientEndpoint_Deregister_Vault(t *testing.T) {
 func TestClientEndpoint_UpdateStatus(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -519,8 +529,9 @@ func TestClientEndpoint_UpdateStatus(t *testing.T) {
 
 func TestClientEndpoint_UpdateStatus_Vault(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -578,8 +589,9 @@ func TestClientEndpoint_UpdateStatus_Vault(t *testing.T) {
 func TestClientEndpoint_UpdateStatus_HeartbeatRecovery(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -627,8 +639,9 @@ func TestClientEndpoint_UpdateStatus_HeartbeatRecovery(t *testing.T) {
 
 func TestClientEndpoint_Register_GetEvals(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -721,8 +734,9 @@ func TestClientEndpoint_Register_GetEvals(t *testing.T) {
 
 func TestClientEndpoint_UpdateStatus_GetEvals(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -804,18 +818,19 @@ func TestClientEndpoint_UpdateStatus_GetEvals(t *testing.T) {
 
 func TestClientEndpoint_UpdateStatus_HeartbeatOnly(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
 
-	s2 := TestServer(t, func(c *Config) {
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
+
+	s2, cleanupS2 := TestServer(t, func(c *Config) {
 		c.DevDisableBootstrap = true
 	})
-	defer s2.Shutdown()
+	defer cleanupS2()
 
-	s3 := TestServer(t, func(c *Config) {
+	s3, cleanupS3 := TestServer(t, func(c *Config) {
 		c.DevDisableBootstrap = true
 	})
-	defer s3.Shutdown()
+	defer cleanupS3()
 	servers := []*Server{s1, s2, s3}
 	TestJoin(t, s1, s2, s3)
 
@@ -885,10 +900,10 @@ func TestClientEndpoint_UpdateStatus_HeartbeatOnly_Advertise(t *testing.T) {
 	adv, err := net.ResolveTCPAddr("tcp", advAddr)
 	require.Nil(err)
 
-	s1 := TestServer(t, func(c *Config) {
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.ClientRPCAdvertise = adv
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -919,8 +934,9 @@ func TestClientEndpoint_UpdateStatus_HeartbeatOnly_Advertise(t *testing.T) {
 func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -971,6 +987,17 @@ func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	// now+deadline should be after the forced deadline
 	require.True(time.Now().Add(strategy.Deadline).After(out.DrainStrategy.ForceDeadline))
 
+	drainStartedAt := out.DrainStrategy.StartedAt
+	// StartedAt should be close to the time the drain started
+	require.WithinDuration(beforeUpdate, drainStartedAt, 1*time.Second)
+
+	// StartedAt shouldn't change if a new request comes while still draining
+	require.Nil(msgpackrpc.CallWithCodec(codec, "Node.UpdateDrain", dereg, &resp2))
+	ws = memdb.NewWatchSet()
+	out, err = state.NodeByID(ws, node.ID)
+	require.NoError(err)
+	require.True(out.DrainStrategy.StartedAt.Equal(drainStartedAt))
+
 	// Register a system job
 	job := mock.SystemJob()
 	require.Nil(s1.State().UpsertJob(10, job))
@@ -988,8 +1015,8 @@ func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	ws = memdb.NewWatchSet()
 	out, err = state.NodeByID(ws, node.ID)
 	require.NoError(err)
-	require.Len(out.Events, 3)
-	require.Equal(NodeDrainEventDrainDisabled, out.Events[2].Message)
+	require.Len(out.Events, 4)
+	require.Equal(NodeDrainEventDrainDisabled, out.Events[3].Message)
 
 	// Check that calling UpdateDrain with the same DrainStrategy does not emit
 	// a node event.
@@ -997,13 +1024,14 @@ func TestClientEndpoint_UpdateDrain(t *testing.T) {
 	ws = memdb.NewWatchSet()
 	out, err = state.NodeByID(ws, node.ID)
 	require.NoError(err)
-	require.Len(out.Events, 3)
+	require.Len(out.Events, 4)
 }
 
 func TestClientEndpoint_UpdateDrain_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -1063,8 +1091,9 @@ func TestClientEndpoint_UpdateDrain_ACL(t *testing.T) {
 // pending/running state to lost when a node is marked as down.
 func TestClientEndpoint_Drain_Down(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -1194,8 +1223,9 @@ func TestClientEndpoint_Drain_Down(t *testing.T) {
 func TestClientEndpoint_UpdateEligibility(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1250,8 +1280,9 @@ func TestClientEndpoint_UpdateEligibility(t *testing.T) {
 
 func TestClientEndpoint_UpdateEligibility_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -1305,8 +1336,9 @@ func TestClientEndpoint_UpdateEligibility_ACL(t *testing.T) {
 
 func TestClientEndpoint_GetNode(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1373,8 +1405,9 @@ func TestClientEndpoint_GetNode(t *testing.T) {
 
 func TestClientEndpoint_GetNode_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -1436,8 +1469,9 @@ func TestClientEndpoint_GetNode_ACL(t *testing.T) {
 
 func TestClientEndpoint_GetNode_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -1538,8 +1572,9 @@ func TestClientEndpoint_GetNode_Blocking(t *testing.T) {
 
 func TestClientEndpoint_GetAllocs(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1600,8 +1635,9 @@ func TestClientEndpoint_GetAllocs(t *testing.T) {
 
 func TestClientEndpoint_GetAllocs_ACL_Basic(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -1675,8 +1711,9 @@ func TestClientEndpoint_GetAllocs_ACL_Basic(t *testing.T) {
 func TestClientEndpoint_GetClientAllocs(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1753,8 +1790,9 @@ func TestClientEndpoint_GetClientAllocs(t *testing.T) {
 
 func TestClientEndpoint_GetClientAllocs_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1875,8 +1913,9 @@ func TestClientEndpoint_GetClientAllocs_Blocking(t *testing.T) {
 func TestClientEndpoint_GetClientAllocs_Blocking_GC(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -1952,8 +1991,8 @@ func TestClientEndpoint_GetClientAllocs_WithoutMigrateTokens(t *testing.T) {
 	t.Parallel()
 	assert := assert.New(t)
 
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2003,8 +2042,9 @@ func TestClientEndpoint_GetClientAllocs_WithoutMigrateTokens(t *testing.T) {
 
 func TestClientEndpoint_GetAllocs_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2095,14 +2135,15 @@ func TestClientEndpoint_GetAllocs_Blocking(t *testing.T) {
 
 func TestClientEndpoint_UpdateAlloc(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		// Disabling scheduling in this test so that we can
 		// ensure that the state store doesn't accumulate more evals
 		// than what we expect the unit test to add
 		c.NumSchedulers = 0
 	})
 
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	require := require.New(t)
@@ -2192,8 +2233,9 @@ func TestClientEndpoint_UpdateAlloc(t *testing.T) {
 
 func TestClientEndpoint_BatchUpdate(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2249,8 +2291,9 @@ func TestClientEndpoint_BatchUpdate(t *testing.T) {
 
 func TestClientEndpoint_UpdateAlloc_Vault(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2334,8 +2377,9 @@ func TestClientEndpoint_UpdateAlloc_Vault(t *testing.T) {
 
 func TestClientEndpoint_CreateNodeEvals(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	testutil.WaitForLeader(t, s1.RPC)
 
 	// Inject fake evaluations
@@ -2428,10 +2472,11 @@ func TestClientEndpoint_CreateNodeEvals(t *testing.T) {
 
 func TestClientEndpoint_Evaluate(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, func(c *Config) {
+
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
-	defer s1.Shutdown()
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2515,8 +2560,9 @@ func TestClientEndpoint_Evaluate(t *testing.T) {
 
 func TestClientEndpoint_Evaluate_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -2573,8 +2619,9 @@ func TestClientEndpoint_Evaluate_ACL(t *testing.T) {
 
 func TestClientEndpoint_ListNodes(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 
@@ -2634,8 +2681,9 @@ func TestClientEndpoint_ListNodes(t *testing.T) {
 
 func TestClientEndpoint_ListNodes_ACL(t *testing.T) {
 	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, root, cleanupS1 := TestACLServer(t, nil)
+	defer cleanupS1()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 	assert := assert.New(t)
@@ -2688,8 +2736,9 @@ func TestClientEndpoint_ListNodes_ACL(t *testing.T) {
 
 func TestClientEndpoint_ListNodes_Blocking(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -2819,8 +2868,9 @@ func TestClientEndpoint_ListNodes_Blocking(t *testing.T) {
 
 func TestClientEndpoint_DeriveVaultToken_Bad(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -2900,8 +2950,9 @@ func TestClientEndpoint_DeriveVaultToken_Bad(t *testing.T) {
 
 func TestClientEndpoint_DeriveVaultToken(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -2992,8 +3043,9 @@ func TestClientEndpoint_DeriveVaultToken(t *testing.T) {
 
 func TestClientEndpoint_DeriveVaultToken_VaultError(t *testing.T) {
 	t.Parallel()
-	s1 := TestServer(t, nil)
-	defer s1.Shutdown()
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
@@ -3047,13 +3099,182 @@ func TestClientEndpoint_DeriveVaultToken_VaultError(t *testing.T) {
 	}
 }
 
+func TestClientEndpoint_taskUsesConnect(t *testing.T) {
+	t.Parallel()
+
+	try := func(t *testing.T, task *structs.Task, exp bool) {
+		result := taskUsesConnect(task)
+		require.Equal(t, exp, result)
+	}
+
+	t.Run("task uses connect", func(t *testing.T) {
+		try(t, &structs.Task{
+			// see nomad.newConnectTask for how this works
+			Name: "connect-proxy-myservice",
+			Kind: "connect-proxy:myservice",
+		}, true)
+	})
+
+	t.Run("task does not use connect", func(t *testing.T) {
+		try(t, &structs.Task{
+			Name: "mytask",
+			Kind: "incorrect:mytask",
+		}, false)
+	})
+
+	t.Run("task does not exist", func(t *testing.T) {
+		try(t, nil, false)
+	})
+}
+
+func TestClientEndpoint_tasksNotUsingConnect(t *testing.T) {
+	t.Parallel()
+
+	taskGroup := &structs.TaskGroup{
+		Name: "testgroup",
+		Tasks: []*structs.Task{{
+			Name: "connect-proxy-service1",
+			Kind: "connect-proxy:service1",
+		}, {
+			Name: "incorrect-task3",
+			Kind: "incorrect:task3",
+		}, {
+			Name: "connect-proxy-service4",
+			Kind: "connect-proxy:service4",
+		}, {
+			Name: "incorrect-task5",
+			Kind: "incorrect:task5",
+		}},
+	}
+
+	requestingTasks := []string{
+		"connect-proxy-service1", // yes
+		"task2",                  // does not exist
+		"task3",                  // no
+		"connect-proxy-service4", // yes
+		"task5",                  // no
+	}
+
+	unneeded := tasksNotUsingConnect(taskGroup, requestingTasks)
+	exp := []string{"task2", "task3", "task5"}
+	require.Equal(t, exp, unneeded)
+}
+
+func mutateConnectJob(t *testing.T, job *structs.Job) {
+	var jch jobConnectHook
+	_, warnings, err := jch.Mutate(job)
+	require.Empty(t, warnings)
+	require.NoError(t, err)
+}
+
+func TestClientEndpoint_DeriveSIToken(t *testing.T) {
+	t.Parallel()
+	r := require.New(t)
+
+	s1, cleanupS1 := TestServer(t, nil) // already sets consul mocks
+	defer cleanupS1()
+
+	state := s1.fsm.State()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+
+	// Set allow unauthenticated (no operator token required)
+	s1.config.ConsulConfig.AllowUnauthenticated = helper.BoolToPtr(true)
+
+	// Create the node
+	node := mock.Node()
+	err := state.UpsertNode(2, node)
+	r.NoError(err)
+
+	// Create an alloc with a typical connect service (sidecar) defined
+	alloc := mock.ConnectAlloc()
+	alloc.NodeID = node.ID
+	mutateConnectJob(t, alloc.Job) // appends sidecar task
+	sidecarTask := alloc.Job.TaskGroups[0].Tasks[1]
+
+	err = state.UpsertAllocs(3, []*structs.Allocation{alloc})
+	r.NoError(err)
+
+	request := &structs.DeriveSITokenRequest{
+		NodeID:       node.ID,
+		SecretID:     node.SecretID,
+		AllocID:      alloc.ID,
+		Tasks:        []string{sidecarTask.Name},
+		QueryOptions: structs.QueryOptions{Region: "global"},
+	}
+
+	var response structs.DeriveSITokenResponse
+	err = msgpackrpc.CallWithCodec(codec, "Node.DeriveSIToken", request, &response)
+	r.NoError(err)
+	r.Nil(response.Error)
+
+	// Check the state store and ensure we created a Consul SI Token Accessor
+	ws := memdb.NewWatchSet()
+	accessors, err := state.SITokenAccessorsByNode(ws, node.ID)
+	r.NoError(err)
+	r.Equal(1, len(accessors))                                  // only asked for one
+	r.Equal("connect-proxy-testconnect", accessors[0].TaskName) // set by the mock
+	r.Equal(node.ID, accessors[0].NodeID)                       // should match
+	r.Equal(alloc.ID, accessors[0].AllocID)                     // should match
+	r.True(helper.IsUUID(accessors[0].AccessorID))              // should be set
+	r.Greater(accessors[0].CreateIndex, uint64(3))              // more than 3rd
+}
+
+func TestClientEndpoint_DeriveSIToken_ConsulError(t *testing.T) {
+	t.Parallel()
+	r := require.New(t)
+
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
+	state := s1.fsm.State()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+
+	// Set allow unauthenticated (no operator token required)
+	s1.config.ConsulConfig.AllowUnauthenticated = helper.BoolToPtr(true)
+
+	// Create the node
+	node := mock.Node()
+	err := state.UpsertNode(2, node)
+	r.NoError(err)
+
+	// Create an alloc with a typical connect service (sidecar) defined
+	alloc := mock.ConnectAlloc()
+	alloc.NodeID = node.ID
+	mutateConnectJob(t, alloc.Job) // appends sidecar task
+	sidecarTask := alloc.Job.TaskGroups[0].Tasks[1]
+
+	// rejigger the server to use a broken mock consul
+	mockACLsAPI := consul.NewMockACLsAPI(s1.logger)
+	mockACLsAPI.SetError(structs.NewRecoverableError(errors.New("consul recoverable error"), true))
+	m := NewConsulACLsAPI(mockACLsAPI, s1.logger, nil)
+	s1.consulACLs = m
+
+	err = state.UpsertAllocs(3, []*structs.Allocation{alloc})
+	r.NoError(err)
+
+	request := &structs.DeriveSITokenRequest{
+		NodeID:       node.ID,
+		SecretID:     node.SecretID,
+		AllocID:      alloc.ID,
+		Tasks:        []string{sidecarTask.Name},
+		QueryOptions: structs.QueryOptions{Region: "global"},
+	}
+
+	var response structs.DeriveSITokenResponse
+	err = msgpackrpc.CallWithCodec(codec, "Node.DeriveSIToken", request, &response)
+	r.NoError(err)
+	r.NotNil(response.Error)               // error should be set
+	r.True(response.Error.IsRecoverable()) // and is recoverable
+}
+
 func TestClientEndpoint_EmitEvents(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	s1 := TestServer(t, nil)
+	s1, cleanupS1 := TestServer(t, nil)
+	defer cleanupS1()
 	state := s1.fsm.State()
-	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
 	testutil.WaitForLeader(t, s1.RPC)
 

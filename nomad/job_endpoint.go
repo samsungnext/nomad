@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/nomad/nomad/state"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/scheduler"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -33,14 +34,6 @@ const (
 )
 
 var (
-	// vaultConstraint is the implicit constraint added to jobs requesting a
-	// Vault token
-	vaultConstraint = &structs.Constraint{
-		LTarget: "${attr.vault.version}",
-		RTarget: ">= 0.6.1",
-		Operand: structs.ConstraintVersion,
-	}
-
 	// allowRescheduleTransition is the transition that allows failed
 	// allocations to be force rescheduled. We create a one off
 	// variable to avoid creating a new object for every request.
@@ -65,8 +58,8 @@ func NewJobEndpoints(s *Server) *Job {
 		srv:    s,
 		logger: s.logger.Named("job"),
 		mutators: []jobMutator{
-			jobConnectHook{},
 			jobCanonicalizer{},
+			jobConnectHook{},
 			jobImpliedConstraints{},
 		},
 		validators: []jobValidator{
@@ -88,6 +81,11 @@ func (j *Job) Register(args *structs.JobRegisterRequest, reply *structs.JobRegis
 		return fmt.Errorf("missing job for registration")
 	}
 
+	// defensive check; http layer and RPC requester should ensure namespaces are set consistently
+	if args.RequestNamespace() != args.Job.Namespace {
+		return fmt.Errorf("mismatched request namespace in request: %q, %q", args.RequestNamespace(), args.Job.Namespace)
+	}
+
 	// Run admission controllers
 	job, warnings, err := j.admissionControllers(args.Job)
 	if err != nil {
@@ -105,15 +103,11 @@ func (j *Job) Register(args *structs.JobRegisterRequest, reply *structs.JobRegis
 		if !aclObj.AllowNsOp(args.RequestNamespace(), acl.NamespaceCapabilitySubmitJob) {
 			return structs.ErrPermissionDenied
 		}
-		// Validate Volume Permsissions
+
+		// Validate Volume Permissions
 		for _, tg := range args.Job.TaskGroups {
 			for _, vol := range tg.Volumes {
 				if vol.Type != structs.VolumeTypeHost {
-					return structs.ErrPermissionDenied
-				}
-
-				cfg, err := structs.ParseHostVolumeConfig(vol.Config)
-				if err != nil {
 					return structs.ErrPermissionDenied
 				}
 
@@ -121,12 +115,22 @@ func (j *Job) Register(args *structs.JobRegisterRequest, reply *structs.JobRegis
 				// or ReadWrite access to the volume. Otherwise we only allow access if
 				// they have ReadWrite access.
 				if vol.ReadOnly {
-					if !aclObj.AllowHostVolumeOperation(cfg.Source, acl.HostVolumeCapabilityMountReadOnly) &&
-						!aclObj.AllowHostVolumeOperation(cfg.Source, acl.HostVolumeCapabilityMountReadWrite) {
+					if !aclObj.AllowHostVolumeOperation(vol.Source, acl.HostVolumeCapabilityMountReadOnly) &&
+						!aclObj.AllowHostVolumeOperation(vol.Source, acl.HostVolumeCapabilityMountReadWrite) {
 						return structs.ErrPermissionDenied
 					}
 				} else {
-					if !aclObj.AllowHostVolumeOperation(cfg.Source, acl.HostVolumeCapabilityMountReadWrite) {
+					if !aclObj.AllowHostVolumeOperation(vol.Source, acl.HostVolumeCapabilityMountReadWrite) {
+						return structs.ErrPermissionDenied
+					}
+				}
+			}
+
+			for _, t := range tg.Tasks {
+				for _, vm := range t.VolumeMounts {
+					vol := tg.Volumes[vm.Volume]
+					if vm.PropagationMode == structs.VolumeMountPropagationBidirectional &&
+						!aclObj.AllowHostVolumeOperation(vol.Source, acl.HostVolumeCapabilityMountReadWrite) {
 						return structs.ErrPermissionDenied
 					}
 				}
@@ -211,8 +215,36 @@ func (j *Job) Register(args *structs.JobRegisterRequest, reply *structs.JobRegis
 		}
 	}
 
-	// Enforce Sentinel policies
-	policyWarnings, err := j.enforceSubmitJob(args.PolicyOverride, args.Job)
+	// helper function that checks if the "operator token" supplied with the
+	// job has sufficient ACL permissions for establishing consul connect services
+	checkOperatorToken := func(task string) error {
+		if j.srv.config.ConsulConfig.AllowsUnauthenticated() {
+			// if consul.allow_unauthenticated is enabled (which is the default)
+			// just let the Job through without checking anything.
+			return nil
+		}
+		proxiedTask := strings.TrimPrefix(task, structs.ConnectProxyPrefix+"-")
+		ctx := context.Background()
+		if err := j.srv.consulACLs.CheckSIPolicy(ctx, proxiedTask, args.Job.ConsulToken); err != nil {
+			// not much in the way of exported error types, we could parse
+			// the content, but all errors are going to be failures anyway
+			return errors.Wrap(err, "operator token denied")
+		}
+		return nil
+	}
+
+	// Enforce that the operator has necessary Consul ACL permissions
+	for _, tg := range args.Job.ConnectTasks() {
+		for _, task := range tg {
+			if err := checkOperatorToken(task); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Enforce Sentinel policies. Pass a copy of the job to prevent
+	// sentinel from altering it.
+	policyWarnings, err := j.enforceSubmitJob(args.PolicyOverride, args.Job.Copy())
 	if err != nil {
 		return err
 	}
@@ -223,6 +255,9 @@ func (j *Job) Register(args *structs.JobRegisterRequest, reply *structs.JobRegis
 
 	// Clear the Vault token
 	args.Job.VaultToken = ""
+
+	// Clear the Consul token
+	args.Job.ConsulToken = ""
 
 	// Check if the job has changed at all
 	if existingJob == nil || existingJob.SpecChanged(args.Job) {
@@ -347,6 +382,11 @@ func (j *Job) Summary(args *structs.JobSummaryRequest,
 // Validate validates a job
 func (j *Job) Validate(args *structs.JobValidateRequest, reply *structs.JobValidateResponse) error {
 	defer metrics.MeasureSince([]string{"nomad", "job", "validate"}, time.Now())
+
+	// defensive check; http layer and RPC requester should ensure namespaces are set consistently
+	if args.RequestNamespace() != args.Job.Namespace {
+		return fmt.Errorf("mismatched request namespace in request: %q, %q", args.RequestNamespace(), args.Job.Namespace)
+	}
 
 	job, mutateWarnings, err := j.admissionMutators(args.Job)
 	if err != nil {
@@ -940,6 +980,12 @@ func (j *Job) Allocations(args *structs.JobSpecificRequest,
 		return err
 	} else if aclObj != nil && !aclObj.AllowNsOp(args.RequestNamespace(), acl.NamespaceCapabilityReadJob) {
 		return structs.ErrPermissionDenied
+	}
+
+	// Ensure JobID is set otherwise everything works and never returns
+	// allocations which can hide bugs in request code.
+	if args.JobID == "" {
+		return fmt.Errorf("missing job ID")
 	}
 
 	// Setup the blocking query

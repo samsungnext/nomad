@@ -15,6 +15,92 @@ details provided for their upgrades as a result of new features or changed
 behavior. This page is used to document those details separately from the
 standard upgrade flow.
 
+## Nomad 0.10.3
+
+### mTLS Certificate Validation
+
+Nomad 0.10.3 includes a fix for a privilege escalation vulnerability in
+validating TLS certificates for RPC with mTLS. Nomad RPC endpoints validated
+that TLS client certificates had not expired and were signed by the same CA as
+the Nomad node, but did not correctly check the certificate's name for the role
+and region as described in the [Securing Nomad with TLS][tls-guide] guide. This
+allows trusted operators with a client certificate signed by the CA to send RPC
+calls as a Nomad client or server node, bypassing access control and accessing
+any secrets available to a client.
+
+Nomad clusters configured for mTLS following the [Securing Nomad with TLS][tls-guide]
+guide or the [Vault PKI Secrets Engine Integration][tls-vault-guide] guide
+should already have certificates that will pass validation. Before upgrading to
+Nomad 0.10.3, operators using mTLS with `verify_server_hostname = true` should
+confirm that the common name or SAN of all Nomad client node certs is
+`client.<region>.nomad`, and that the common name or SAN of all Nomad server
+node certs is `server.<region>.nomad`.
+
+### Connection Limits Added
+
+Nomad 0.10.3 introduces the [limits][limits] agent configuration parameters for
+mitigating denial of service attacks from users who are not authenticated via
+mTLS. The default limits stanza is:
+
+```hcl
+limits {
+  https_handshake_timeout   = "5s"
+  http_max_conns_per_client = 100
+  rpc_handshake_timeout     = "5s"
+  rpc_max_conns_per_client  = 100
+}
+```
+
+If your Nomad agent's endpoints are protected from unauthenticated users via
+other mechanisms these limits may be safely disabled by setting them to `0`.
+
+However the defaults were chosen to be safe for a wide variety of Nomad
+deployments and may protect against accidental abuses of the Nomad API that
+could cause unintended resource usage.
+
+## Nomad 0.10.2
+
+### Preemption Panic Fixed
+
+Nomad 0.9.7 and 0.10.2 fix a [server crashing bug][gh-6787] present in
+scheduler preemption since 0.9.0. Users unable to immediately upgrade Nomad can
+[disable preemption][preemption-api] to avoid the panic.
+
+### Dangling Docker Container Cleanup
+
+Nomad 0.10.2 addresses an issue occurring in heavily loaded clients, where
+containers are started without being properly managed by Nomad. Nomad 0.10.2
+introduced a reaper that detects and kills such containers.
+
+Operators may opt to run reaper in a dry-mode or disabling it through a client config.
+
+For more information, see [Docker Dangling containers][dangling-containers].
+
+## Nomad 0.10.0
+
+### Deployments
+
+Nomad 0.10 enables rolling deployments for service jobs by default
+and adds a default update stanza when a service job is created or updated.
+This does not affect jobs with an update stanza.
+
+In pre-0.10 releases, when updating a service job without an update stanza,
+all existing allocations are stopped while new allocations start up,
+and this may cause a service degradation or an outage.
+You can regain this behavior and disable deployments by setting `max_parallel` to 0.
+
+For more information, see [`update` stanza][update].
+
+## Nomad 0.9.5
+
+### Template Rendering
+
+Nomad 0.9.5 includes security fixes for privilege escalation vulnerabilities in handling of job `template` stanzas:
+
+ * The client host's environment variables are now cleaned before rendering the template. If a template includes the `env` function, the job should include an [`env`](https://www.nomadproject.io/docs/job-specification/env.html) stanza to allow access to the variable in the template.
+ * The `plugin` function is no longer permitted by default and will raise an error if used in a template. Operator can opt-in to permitting this function with the new [`template.function_blacklist`](https://www.nomadproject.io/docs/configuration/client.html#template-parameters) field in the client configuration.
+ * The `file` function has been changed to restrict paths to fall inside the task directory by default. Paths that used the `NOMAD_TASK_DIR` environment variable to prefix file paths should work unchanged. Relative paths or symlinks that point outside the task directory will raise an error. An operator can opt-out of this protection with the new [`template.disable_file_sandbox`](https://www.nomadproject.io/docs/configuration/client.html#template-parameters) field in the client configuration.
+
 ## Nomad 0.9.0
 
 ### Preemption
@@ -142,7 +228,7 @@ Raft Protocol versions supported by each Nomad version:
     <td>1</td>
   </tr>
   <tr>
-    <td>0.8</td>
+    <td>0.8 and later</td>
     <td>1, 2, 3</td>
   </tr>
 </table>
@@ -339,11 +425,18 @@ deleted and then Nomad 0.3.0 can be launched.
 
 [drain-api]: /api/nodes.html#drain-node
 [drain-cli]: /docs/commands/node/drain.html
+[dangling-containers]:  /docs/drivers/docker.html#dangling-containers
+[gh-6787]: https://github.com/hashicorp/nomad/issues/6787
 [hcl2]: https://github.com/hashicorp/hcl2
+[limits]: /docs/configuration/index.html#limits
 [lxc]: /docs/drivers/external/lxc.html
 [migrate]: /docs/job-specification/migrate.html
 [plugins]: /docs/drivers/external/index.html
 [plugin-stanza]: /docs/configuration/plugin.html
 [preemption]: /docs/internals/scheduling/preemption.html
+[preemption-api]: /api/operator.html#update-scheduler-configuration
 [task-config]: /docs/job-specification/task.html#config
 [validate]: /docs/commands/job/validate.html
+[update]: /docs/job-specification/update.html
+[tls-guide]: /guides/security/securing-nomad.html
+[tls-vault-guide]: /guides/security/vault-pki-integration.html

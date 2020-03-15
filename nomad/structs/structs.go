@@ -28,8 +28,10 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/nomad/acl"
+	"github.com/hashicorp/nomad/command/agent/pprof"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/helper/args"
+	"github.com/hashicorp/nomad/helper/constraints/semver"
 	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/lib/kheap"
 	psstructs "github.com/hashicorp/nomad/plugins/shared/structs"
@@ -84,6 +86,9 @@ const (
 	BatchNodeUpdateDrainRequestType
 	SchedulerConfigRequestType
 	NodeBatchDeregisterRequestType
+	ClusterMetadataRequestType
+	ServiceIdentityAccessorRegisterRequestType
+	ServiceIdentityAccessorDeregisterRequestType
 )
 
 const (
@@ -210,6 +215,13 @@ type QueryOptions struct {
 	Region string
 
 	// Namespace is the target namespace for the query.
+	//
+	// Since handlers do not have a default value set they should access
+	// the Namespace via the RequestNamespace method.
+	//
+	// Requests accessing specific namespaced objects must check ACLs
+	// against the namespace of the object, not the namespace in the
+	// request.
 	Namespace string
 
 	// If set, wait until query exceeds given index. Must be provided
@@ -236,6 +248,11 @@ func (q QueryOptions) RequestRegion() string {
 	return q.Region
 }
 
+// RequestNamespace returns the request's namespace or the default namespace if
+// no explicit namespace was sent.
+//
+// Requests accessing specific namespaced objects must check ACLs against the
+// namespace of the object, not the namespace in the request.
 func (q QueryOptions) RequestNamespace() string {
 	if q.Namespace == "" {
 		return DefaultNamespace
@@ -252,11 +269,58 @@ func (q QueryOptions) AllowStaleRead() bool {
 	return q.AllowStale
 }
 
+// AgentPprofRequest is used to request a pprof report for a given node.
+type AgentPprofRequest struct {
+	// ReqType specifies the profile to use
+	ReqType pprof.ReqType
+
+	// Profile specifies the runtime/pprof profile to lookup and generate.
+	Profile string
+
+	// Seconds is the number of seconds to capture a profile
+	Seconds int
+
+	// Debug specifies if pprof profile should inclue debug output
+	Debug int
+
+	// GC specifies if the profile should call runtime.GC() before
+	// running its profile. This is only used for "heap" profiles
+	GC int
+
+	// NodeID is the node we want to track the logs of
+	NodeID string
+
+	// ServerID is the server we want to track the logs of
+	ServerID string
+
+	QueryOptions
+}
+
+// AgentPprofResponse is used to return a generated pprof profile
+type AgentPprofResponse struct {
+	// ID of the agent that fulfilled the request
+	AgentID string
+
+	// Payload is the generated pprof profile
+	Payload []byte
+
+	// HTTPHeaders are a set of key value pairs to be applied as
+	// HTTP headers for a specific runtime profile
+	HTTPHeaders map[string]string
+}
+
 type WriteRequest struct {
 	// The target region for this write
 	Region string
 
 	// Namespace is the target namespace for the write.
+	//
+	// Since RPC handlers do not have a default value set they should
+	// access the Namespace via the RequestNamespace method.
+	//
+	// Requests accessing specific namespaced objects must check ACLs
+	// against the namespace of the object, not the namespace in the
+	// request.
 	Namespace string
 
 	// AuthToken is secret portion of the ACL token used for the request
@@ -270,6 +334,11 @@ func (w WriteRequest) RequestRegion() string {
 	return w.Region
 }
 
+// RequestNamespace returns the request's namespace or the default namespace if
+// no explicit namespace was sent.
+//
+// Requests accessing specific namespaced objects must check ACLs against the
+// namespace of the object, not the namespace in the request.
 func (w WriteRequest) RequestNamespace() string {
 	if w.Namespace == "" {
 		return DefaultNamespace
@@ -578,6 +647,12 @@ type JobRevertRequest struct {
 	// version before reverting.
 	EnforcePriorVersion *uint64
 
+	// ConsulToken is the Consul token that proves the submitter of the job revert
+	// has access to the Service Identity policies associated with the job's
+	// Consul Connect enabled services. This field is only used to transfer the
+	// token and is not stored after the Job revert.
+	ConsulToken string
+
 	// VaultToken is the Vault token that proves the submitter of the job revert
 	// has access to any Vault policies specified in the targeted job version. This
 	// field is only used to transfer the token and is not stored after the Job
@@ -810,6 +885,12 @@ type ServerMember struct {
 	DelegateCur uint8
 }
 
+// ClusterMetadata is used to store per-cluster metadata.
+type ClusterMetadata struct {
+	ClusterID  string
+	CreateTime int64
+}
+
 // DeriveVaultTokenRequest is used to request wrapped Vault tokens for the
 // following tasks in the given allocation
 type DeriveVaultTokenRequest struct {
@@ -844,7 +925,7 @@ type DeriveVaultTokenResponse struct {
 	Tasks map[string]string
 
 	// Error stores any error that occurred. Errors are stored here so we can
-	// communicate whether it is retriable
+	// communicate whether it is retryable
 	Error *RecoverableError
 
 	QueryMeta
@@ -1424,6 +1505,9 @@ type DrainStrategy struct {
 	// ForceDeadline is the deadline time for the drain after which drains will
 	// be forced
 	ForceDeadline time.Time
+
+	// StartedAt is the time the drain process started
+	StartedAt time.Time
 }
 
 func (d *DrainStrategy) Copy() *DrainStrategy {
@@ -3340,6 +3424,12 @@ type Job struct {
 	// job. This is opaque to Nomad.
 	Meta map[string]string
 
+	// ConsulToken is the Consul token that proves the submitter of the job has
+	// access to the Service Identity policies associated with the job's
+	// Consul Connect enabled services. This field is only used to transfer the
+	// token and is not stored after Job submission.
+	ConsulToken string
+
 	// VaultToken is the Vault token that proves the submitter of the job has
 	// access to the specified Vault policies. This field is only used to
 	// transfer the token and is not stored after Job submission.
@@ -3525,6 +3615,10 @@ func (j *Job) Validate() error {
 			taskGroups[tg.Name] = idx
 		}
 
+		if tg.ShutdownDelay != nil && *tg.ShutdownDelay < 0 {
+			mErr.Errors = append(mErr.Errors, errors.New("ShutdownDelay must be a positive value"))
+		}
+
 		if j.Type == "system" && tg.Count > 1 {
 			mErr.Errors = append(mErr.Errors,
 				fmt.Errorf("Job task group %s has count %d. Count cannot exceed 1 with system scheduler",
@@ -3608,15 +3702,16 @@ func (j *Job) LookupTaskGroup(name string) *TaskGroup {
 func (j *Job) CombinedTaskMeta(groupName, taskName string) map[string]string {
 	group := j.LookupTaskGroup(groupName)
 	if group == nil {
-		return nil
+		return j.Meta
 	}
+
+	var meta map[string]string
 
 	task := group.LookupTask(taskName)
-	if task == nil {
-		return nil
+	if task != nil {
+		meta = helper.CopyMapStringString(task.Meta)
 	}
 
-	meta := helper.CopyMapStringString(task.Meta)
 	if meta == nil {
 		meta = make(map[string]string, len(group.Meta)+len(j.Meta))
 	}
@@ -3713,6 +3808,27 @@ func (j *Job) VaultPolicies() map[string]map[string]*Vault {
 	}
 
 	return policies
+}
+
+// Connect tasks returns the set of Consul Connect enabled tasks that will
+// require a Service Identity token, if Consul ACLs are enabled.
+//
+// This method is meaningful only after the Job has passed through the job
+// submission Mutator functions.
+//
+// task group -> []task
+func (j *Job) ConnectTasks() map[string][]string {
+	m := make(map[string][]string)
+	for _, tg := range j.TaskGroups {
+		for _, task := range tg.Tasks {
+			if task.Kind.IsConnectProxy() {
+				// todo(shoenig): when we support native, probably need to check
+				//  an additional TBD TaskKind as well.
+				m[tg.Name] = append(m[tg.Name], task.Name)
+			}
+		}
+	}
+	return m
 }
 
 // RequiredSignals returns a mapping of task groups to tasks to their required
@@ -4713,6 +4829,10 @@ type TaskGroup struct {
 
 	// Volumes is a map of volumes that have been requested by the task group.
 	Volumes map[string]*VolumeRequest
+
+	// ShutdownDelay is the amount of time to wait between deregistering
+	// group services in consul and stopping tasks.
+	ShutdownDelay *time.Duration
 }
 
 func (tg *TaskGroup) Copy() *TaskGroup {
@@ -4757,6 +4877,10 @@ func (tg *TaskGroup) Copy() *TaskGroup {
 		for i, s := range tg.Services {
 			ntg.Services[i] = s.Copy()
 		}
+	}
+
+	if tg.ShutdownDelay != nil {
+		ntg.ShutdownDelay = tg.ShutdownDelay
 	}
 
 	return ntg
@@ -4931,13 +5055,7 @@ func (tg *TaskGroup) Validate(j *Job) error {
 			continue
 		}
 
-		cfg, err := ParseHostVolumeConfig(decl.Config)
-		if err != nil {
-			mErr.Errors = append(mErr.Errors, fmt.Errorf("Volume %s has unparseable config: %v", name, err))
-			continue
-		}
-
-		if cfg.Source == "" {
+		if decl.Source == "" {
 			mErr.Errors = append(mErr.Errors, fmt.Errorf("Volume %s has an empty source", name))
 		}
 	}
@@ -5001,13 +5119,16 @@ func (tg *TaskGroup) validateNetworks() error {
 				}
 			}
 
-			if port.To != 0 {
+			if port.To > 0 {
 				if other, ok := mappedPorts[port.To]; ok {
 					err := fmt.Errorf("Port mapped to %d already in use by %s", port.To, other)
 					mErr.Errors = append(mErr.Errors, err)
 				} else {
 					mappedPorts[port.To] = fmt.Sprintf("taskgroup network:%s", port.Label)
 				}
+			} else if port.To < -1 {
+				err := fmt.Errorf("Port %q cannot be mapped to negative value %d", port.Label, port.To)
+				mErr.Errors = append(mErr.Errors, err)
 			}
 		}
 	}
@@ -5135,6 +5256,17 @@ func (tg *TaskGroup) LookupTask(name string) *Task {
 		}
 	}
 	return nil
+}
+
+func (tg *TaskGroup) UsesConnect() bool {
+	for _, service := range tg.Services {
+		if service.Connect != nil {
+			if service.Connect.Native || service.Connect.SidecarService != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (tg *TaskGroup) GoString() string {
@@ -5327,6 +5459,22 @@ type Task struct {
 
 	// Timeout is the max time the task execution will run
 	Timeout time.Duration
+}
+
+// UsesConnect is for conveniently detecting if the Task is able to make use
+// of Consul Connect features. This will be indicated in the TaskKind of the
+// Task, which exports known types of Tasks.
+//
+// Currently only Consul Connect Proxy tasks are known.
+// (Consul Connect Native tasks will be supported soon).
+func (t *Task) UsesConnect() bool {
+	// todo(shoenig): native tasks
+	switch {
+	case t.Kind.IsConnectProxy():
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *Task) Copy() *Task {
@@ -5545,11 +5693,21 @@ func (t *Task) Validate(ephemeralDisk *EphemeralDisk, jobType string, tgServices
 		if t.Leader {
 			mErr.Errors = append(mErr.Errors, fmt.Errorf("Connect proxy task must not have leader set"))
 		}
+
+		// Ensure the proxy task has a corresponding service entry
 		serviceErr := ValidateConnectProxyService(t.Kind.Value(), tgServices)
 		if serviceErr != nil {
 			mErr.Errors = append(mErr.Errors, serviceErr)
 		}
 	}
+
+	// Validation for volumes
+	for idx, vm := range t.VolumeMounts {
+		if !MountPropagationModeIsValid(vm.PropagationMode) {
+			mErr.Errors = append(mErr.Errors, fmt.Errorf("Volume Mount (%d) has an invalid propagation mode: \"%s\"", idx, vm.PropagationMode))
+		}
+	}
+
 	return mErr.ErrorOrNil()
 }
 
@@ -5695,7 +5853,7 @@ func (t *Task) Warnings() error {
 
 // TaskKind identifies the special kinds of tasks using the following format:
 // '<kind_name>(:<identifier>)`. The TaskKind can optionally include an identifier that
-// is opague to the Task. This identier can be used to relate the task to some
+// is opaque to the Task. This identifier can be used to relate the task to some
 // other entity based on the kind.
 //
 // For example, a task may have the TaskKind of `connect-proxy:service` where
@@ -5731,15 +5889,28 @@ const ConnectProxyPrefix = "connect-proxy"
 // valid Connect config.
 func ValidateConnectProxyService(serviceName string, tgServices []*Service) error {
 	found := false
+	names := make([]string, 0, len(tgServices))
 	for _, svc := range tgServices {
-		if svc.Name == serviceName && svc.Connect != nil && svc.Connect.SidecarService != nil {
+		if svc.Connect == nil || svc.Connect.SidecarService == nil {
+			continue
+		}
+
+		if svc.Name == serviceName {
 			found = true
 			break
 		}
+
+		// Build up list of mismatched Connect service names for error
+		// reporting.
+		names = append(names, svc.Name)
 	}
 
 	if !found {
-		return fmt.Errorf("Connect proxy service name not found in services from task group")
+		if len(names) == 0 {
+			return fmt.Errorf("No Connect services in task group with Connect proxy (%q)", serviceName)
+		} else {
+			return fmt.Errorf("Connect proxy service name (%q) not found in Connect services from task group: %s", serviceName, names)
+		}
 	}
 
 	return nil
@@ -6610,6 +6781,7 @@ const (
 	ConstraintDistinctHosts     = "distinct_hosts"
 	ConstraintRegex             = "regexp"
 	ConstraintVersion           = "version"
+	ConstraintSemver            = "semver"
 	ConstraintSetContains       = "set_contains"
 	ConstraintSetContainsAll    = "set_contains_all"
 	ConstraintSetContainsAny    = "set_contains_any"
@@ -6679,6 +6851,10 @@ func (c *Constraint) Validate() error {
 	case ConstraintVersion:
 		if _, err := version.NewConstraint(c.RTarget); err != nil {
 			mErr.Errors = append(mErr.Errors, fmt.Errorf("Version constraint is invalid: %v", err))
+		}
+	case ConstraintSemver:
+		if _, err := semver.NewConstraint(c.RTarget); err != nil {
+			mErr.Errors = append(mErr.Errors, fmt.Errorf("Semver constraint is invalid: %v", err))
 		}
 	case ConstraintDistinctProperty:
 		// If a count is set, make sure it is convertible to a uint64
@@ -6793,6 +6969,10 @@ func (a *Affinity) Validate() error {
 	case ConstraintVersion:
 		if _, err := version.NewConstraint(a.RTarget); err != nil {
 			mErr.Errors = append(mErr.Errors, fmt.Errorf("Version affinity is invalid: %v", err))
+		}
+	case ConstraintSemver:
+		if _, err := semver.NewConstraint(a.RTarget); err != nil {
+			mErr.Errors = append(mErr.Errors, fmt.Errorf("Semver affinity is invalid: %v", err))
 		}
 	case "=", "==", "is", "!=", "not", "<", "<=", ">", ">=":
 		if a.RTarget == "" {
@@ -7481,15 +7661,17 @@ type Allocation struct {
 	// the scheduler.
 	Resources *Resources
 
-	// COMPAT(0.11): Remove in 0.11
 	// SharedResources are the resources that are shared by all the tasks in an
 	// allocation
+	// Deprecated: use AllocatedResources.Shared instead.
+	// Keep field to allow us to handle upgrade paths from old versions
 	SharedResources *Resources
 
-	// COMPAT(0.11): Remove in 0.11
 	// TaskResources is the set of resources allocated to each
 	// task. These should sum to the total Resources. Dynamic ports will be
 	// set by the scheduler.
+	// Deprecated: use AllocatedResources.Tasks instead.
+	// Keep field to allow us to handle upgrade paths from old versions
 	TaskResources map[string]*Resources
 
 	// AllocatedResources is the total resources allocated for the task group.
@@ -7584,6 +7766,36 @@ func (a *Allocation) Copy() *Allocation {
 // CopySkipJob provides a copy of the allocation but doesn't deep copy the job
 func (a *Allocation) CopySkipJob() *Allocation {
 	return a.copyImpl(false)
+}
+
+// Canonicalize Allocation to ensure fields are initialized to the expectations
+// of this version of Nomad. Should be called when restoring persisted
+// Allocations or receiving Allocations from Nomad agents potentially on an
+// older version of Nomad.
+func (a *Allocation) Canonicalize() {
+	if a.AllocatedResources == nil && a.TaskResources != nil {
+		ar := AllocatedResources{}
+
+		tasks := make(map[string]*AllocatedTaskResources, len(a.TaskResources))
+		for name, tr := range a.TaskResources {
+			atr := AllocatedTaskResources{}
+			atr.Cpu.CpuShares = int64(tr.CPU)
+			atr.Memory.MemoryMB = int64(tr.MemoryMB)
+			atr.Networks = tr.Networks.Copy()
+
+			tasks[name] = &atr
+		}
+		ar.Tasks = tasks
+
+		if a.SharedResources != nil {
+			ar.Shared.DiskMB = int64(a.SharedResources.DiskMB)
+			ar.Shared.Networks = a.SharedResources.Networks.Copy()
+		}
+
+		a.AllocatedResources = &ar
+	}
+
+	a.Job.Canonicalize()
 }
 
 func (a *Allocation) copyImpl(job bool) *Allocation {
@@ -9043,9 +9255,10 @@ func IsServerSide(e error) bool {
 
 // ACLPolicy is used to represent an ACL policy
 type ACLPolicy struct {
-	Name        string // Unique name
-	Description string // Human readable
-	Rules       string // HCL or JSON format
+	Name        string      // Unique name
+	Description string      // Human readable
+	Rules       string      // HCL or JSON format
+	RulesJSON   *acl.Policy // Generated from Rules on read
 	Hash        []byte
 	CreateIndex uint64
 	ModifyIndex uint64

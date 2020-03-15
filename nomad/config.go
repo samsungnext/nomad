@@ -67,6 +67,10 @@ type Config struct {
 	// use of persistence or state.
 	DevMode bool
 
+	// EnableDebug is used to enable debugging RPC endpoints
+	// in the absence of ACLs
+	EnableDebug bool
+
 	// DevDisableBootstrap is used to disable bootstrap mode while
 	// in DevMode. This is largely used for testing.
 	DevDisableBootstrap bool
@@ -76,7 +80,7 @@ type Config struct {
 	LogOutput io.Writer
 
 	// Logger is the logger used by the server.
-	Logger log.Logger
+	Logger log.InterceptLogger
 
 	// ProtocolVersion is the protocol version to speak. This must be between
 	// ProtocolVersionMin and ProtocolVersionMax.
@@ -304,12 +308,31 @@ type Config struct {
 	// dead servers.
 	AutopilotInterval time.Duration
 
+	// DefaultSchedulerConfig configures the initial scheduler config to be persisted in Raft.
+	// Once the cluster is bootstrapped, and Raft persists the config (from here or through API),
+	// This value is ignored.
+	DefaultSchedulerConfig structs.SchedulerConfiguration `hcl:"default_scheduler_config"`
+
 	// PluginLoader is used to load plugins.
 	PluginLoader loader.PluginCatalog
 
 	// PluginSingletonLoader is a plugin loader that will returns singleton
 	// instances of the plugins.
 	PluginSingletonLoader loader.PluginCatalog
+
+	// RPCHandshakeTimeout is the deadline by which RPC handshakes must
+	// complete. The RPC handshake includes the first byte read as well as
+	// the TLS handshake and subsequent byte read if TLS is enabled.
+	//
+	// The deadline is reset after the first byte is read so when TLS is
+	// enabled RPC connections may take (timeout * 2) to complete.
+	//
+	// 0 means no timeout.
+	RPCHandshakeTimeout time.Duration
+
+	// RPCMaxConnsPerClient is the maximum number of concurrent RPC
+	// connections from a single IP address. nil/0 means no limit.
+	RPCMaxConnsPerClient int
 }
 
 // CheckVersion is used to check if the ProtocolVersion is valid
@@ -324,7 +347,8 @@ func (c *Config) CheckVersion() error {
 	return nil
 }
 
-// DefaultConfig returns the default configuration
+// DefaultConfig returns the default configuration. Only used as the basis for
+// merging agent or test parameters.
 func DefaultConfig() *Config {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -378,6 +402,13 @@ func DefaultConfig() *Config {
 		},
 		ServerHealthInterval: 2 * time.Second,
 		AutopilotInterval:    10 * time.Second,
+		DefaultSchedulerConfig: structs.SchedulerConfiguration{
+			PreemptionConfig: structs.PreemptionConfig{
+				SystemSchedulerEnabled:  true,
+				BatchSchedulerEnabled:   false,
+				ServiceSchedulerEnabled: false,
+			},
+		},
 	}
 
 	// Enable all known schedulers by default
@@ -401,9 +432,8 @@ func DefaultConfig() *Config {
 	// Disable shutdown on removal
 	c.RaftConfig.ShutdownOnRemove = false
 
-	// Default to Raft v3 to enable new Raft and autopilot features.
-	// Compatible with v2 servers.
-	c.RaftConfig.ProtocolVersion = 3
+	// Default to Raft v2, update to v3 to enable new Raft and autopilot features.
+	c.RaftConfig.ProtocolVersion = 2
 
 	return c
 }

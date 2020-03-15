@@ -2,7 +2,7 @@ import { currentURL } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
 import { selectChoose } from 'ember-power-select/test-support';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import JobsList from 'nomad-ui/tests/pages/jobs/list';
 import ClientsList from 'nomad-ui/tests/pages/clients/list';
 import PageLayout from 'nomad-ui/tests/pages/layout';
@@ -147,6 +147,7 @@ module('Acceptance | regions (many)', function(hooks) {
   });
 
   test('when the region is not the default region, all api requests include the region query param', async function(assert) {
+    window.localStorage.removeItem('nomadTokenSecret');
     const region = server.db.regions[1].id;
 
     await JobsList.visit({ region });
@@ -154,7 +155,12 @@ module('Acceptance | regions (many)', function(hooks) {
     await JobsList.jobs.objectAt(0).clickRow();
     await PageLayout.gutter.visitClients();
     await PageLayout.gutter.visitServers();
-    const [regionsRequest, defaultRegionRequest, ...appRequests] = server.pretender.handledRequests;
+    const [
+      ,
+      regionsRequest,
+      defaultRegionRequest,
+      ...appRequests
+    ] = server.pretender.handledRequests;
 
     assert.notOk(
       regionsRequest.url.includes('region='),

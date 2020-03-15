@@ -9,17 +9,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	testing "github.com/mitchellh/go-testing-interface"
 
 	metrics "github.com/armon/go-metrics"
-	"github.com/hashicorp/consul/sdk/freeport"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/client/fingerprint"
+	"github.com/hashicorp/nomad/helper/freeport"
 	"github.com/hashicorp/nomad/helper/testlog"
 	"github.com/hashicorp/nomad/nomad"
 	"github.com/hashicorp/nomad/nomad/mock"
@@ -78,6 +77,10 @@ type TestAgent struct {
 
 	// RootToken is auto-bootstrapped if ACLs are enabled
 	RootToken *structs.ACLToken
+
+	// ports that are reserved through freeport that must be returned at
+	// the end of a test, done when Shutdown() is called.
+	ports []int
 }
 
 // NewTestAgent returns a started agent with the given name and
@@ -138,28 +141,27 @@ RETRY:
 		}
 
 		// we need the err var in the next exit condition
-		if agent, err := a.start(); err == nil {
+		agent, err := a.start()
+		if err == nil {
 			a.Agent = agent
 			break
 		} else if i == 0 {
-			a.T.Logf("%s: Error starting agent: %v", a.Name, err)
-			runtime.Goexit()
-		} else {
-			if agent != nil {
-				agent.Shutdown()
-			}
-			wait := time.Duration(rand.Int31n(2000)) * time.Millisecond
-			a.T.Logf("%s: retrying in %v", a.Name, wait)
-			time.Sleep(wait)
+			a.T.Fatalf("%s: Error starting agent: %v", a.Name, err)
 		}
+
+		if agent != nil {
+			agent.Shutdown()
+		}
+		wait := time.Duration(rand.Int31n(2000)) * time.Millisecond
+		a.T.Logf("%s: retrying in %v", a.Name, wait)
+		time.Sleep(wait)
 
 		// Clean out the data dir if we are responsible for it before we
 		// try again, since the old ports may have gotten written to
 		// the data dir, such as in the Raft configuration.
 		if a.DataDir != "" {
 			if err := os.RemoveAll(a.DataDir); err != nil {
-				a.T.Logf("%s: Error resetting data dir: %v", a.Name, err)
-				runtime.Goexit()
+				a.T.Fatalf("%s: Error resetting data dir: %v", a.Name, err)
 			}
 		}
 	}
@@ -216,7 +218,7 @@ func (a *TestAgent) start() (*Agent, error) {
 		return nil, fmt.Errorf("unable to set up in memory metrics needed for agent initialization")
 	}
 
-	logger := hclog.New(&hclog.LoggerOptions{
+	logger := hclog.NewInterceptLogger(&hclog.LoggerOptions{
 		Name:       "agent",
 		Level:      hclog.LevelFromString(a.Config.LogLevel),
 		Output:     a.LogOutput,
@@ -241,6 +243,8 @@ func (a *TestAgent) start() (*Agent, error) {
 // Shutdown stops the agent and removes the data directory if it is
 // managed by the test agent.
 func (a *TestAgent) Shutdown() error {
+	defer freeport.Return(a.ports)
+
 	defer func() {
 		if a.DataDir != "" {
 			os.RemoveAll(a.DataDir)
@@ -267,7 +271,11 @@ func (a *TestAgent) HTTPAddr() string {
 	if a.Server == nil {
 		return ""
 	}
-	return "http://" + a.Server.Addr
+	proto := "http://"
+	if a.Config.TLSConfig != nil && a.Config.TLSConfig.EnableHTTP {
+		proto = "https://"
+	}
+	return proto + a.Server.Addr
 }
 
 func (a *TestAgent) Client() *api.Client {
@@ -289,7 +297,9 @@ func (a *TestAgent) Client() *api.Client {
 // Instead of relying on one set of ports to be sufficient we retry
 // starting the agent with different ports on port conflict.
 func (a *TestAgent) pickRandomPorts(c *Config) {
-	ports := freeport.GetT(a.T, 3)
+	ports := freeport.MustTake(3)
+	a.ports = append(a.ports, ports...)
+
 	c.Ports.HTTP = ports[0]
 	c.Ports.RPC = ports[1]
 	c.Ports.Serf = ports[2]

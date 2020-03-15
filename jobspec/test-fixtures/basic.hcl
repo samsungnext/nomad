@@ -1,11 +1,12 @@
 job "binstore-storagelocker" {
-  region      = "fooregion"
-  namespace   = "foonamespace"
-  type        = "batch"
-  priority    = 52
-  all_at_once = true
-  datacenters = ["us2", "eu1"]
-  vault_token = "foo"
+  region       = "fooregion"
+  namespace    = "foonamespace"
+  type         = "batch"
+  priority     = 52
+  all_at_once  = true
+  datacenters  = ["us2", "eu1"]
+  consul_token = "abc"
+  vault_token  = "foo"
 
   meta {
     foo = "bar"
@@ -14,6 +15,12 @@ job "binstore-storagelocker" {
   constraint {
     attribute = "kernel.os"
     value     = "windows"
+  }
+
+  constraint {
+    attribute = "${attr.vault.version}"
+    value     = ">= 0.6.1"
+    operator  = "semver"
   }
 
   affinity {
@@ -130,7 +137,7 @@ job "binstore-storagelocker" {
       driver = "docker"
       user   = "bob"
       leader = true
-      kind = "connect-proxy:test"
+      kind   = "connect-proxy:test"
 
       affinity {
         attribute = "${meta.foo}"
@@ -163,6 +170,14 @@ job "binstore-storagelocker" {
       }
 
       service {
+        meta {
+          abc = "123"
+        }
+
+        canary_meta {
+          canary = "boom"
+        }
+
         tags        = ["foo", "bar"]
         canary_tags = ["canary", "bam"]
         port        = "http"
