@@ -1,7 +1,7 @@
 import { currentURL } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import Allocations from 'nomad-ui/tests/pages/jobs/job/allocations';
 
 let job;
@@ -105,7 +105,9 @@ module('Acceptance | job allocations', function(hooks) {
     await Allocations.visit({ id: 'not-a-real-job' });
 
     assert.equal(
-      server.pretender.handledRequests.findBy('status', 404).url,
+      server.pretender.handledRequests
+        .filter(request => !request.url.includes('policy'))
+        .findBy('status', 404).url,
       '/v1/job/not-a-real-job',
       'A request to the nonexistent job is made'
     );

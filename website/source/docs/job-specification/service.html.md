@@ -16,13 +16,17 @@ description: |-
       <code>job -> group -> task -> **service**</code>
     </td>
   </tr>
+  <th width="120">Placement</th>
+    <td>
+      <code>job -> group -> **service**</code>
+    </td>
+  </tr>
 </table>
 
-The `service` stanza instructs Nomad to register the task as a service using the
-service discovery integration. This section of the documentation will discuss the
-configuration, but please also read the
-[Nomad service discovery documentation][service-discovery] for more detailed
-information about the integration.
+The `service` stanza instructs Nomad to register a service with Consul. This
+section of the documentation will discuss the configuration, but please also
+read the [Nomad service discovery documentation][service-discovery] for more
+detailed information about the integration.
 
 ```hcl
 job "docs" {
@@ -64,12 +68,13 @@ job "docs" {
 }
 ```
 
-This section of the documentation only covers the job file options for
-configuring service discovery. For more information on the setup and
-configuration to integrate Nomad with service discovery, please see the
-[Nomad service discovery documentation][service-discovery]. There are steps you
-must take to configure Nomad. Simply adding this configuration to your job file
-does not automatically enable service discovery.
+This section of the documentation only cover the job file fields and stanzas
+for service discovery. For more details on using Nomad with Consul please see
+the [Consul integration documentation][service-discovery].
+
+Nomad 0.10 also allows specifying the `service` stanza at the task group level.
+This enables services in the same task group to opt into [Consul
+Connect][connect] integration.
 
 ## `service` Parameters
 
@@ -77,6 +82,9 @@ does not automatically enable service discovery.
   check associated with the service. This can be specified multiple times to
   define multiple checks for the service. At this time, Nomad supports the
   `grpc`, `http`, `script`<sup><small>1</small></sup>, and `tcp` checks.
+
+- `connect` - Configures the [Consul Connect][connect] integration. Only
+  available on group services.
 
 - `name` `(string: "<job>-<group>-<task>")` - Specifies the name this service
   will be advertised as in Consul.  If not supplied, this will default to the
@@ -120,7 +128,7 @@ does not automatically enable service discovery.
   this service when the service is part of an allocation that is currently a
   canary. Once the canary is promoted, the registered tags will be updated to
   those specified in the `tags` parameter. If this is not supplied, the
-  registered tags will be equal to that of the `tags parameter.
+  registered tags will be equal to that of the `tags` parameter.
 
 - `address_mode` `(string: "auto")` - Specifies what address (host or
   driver-specific) this service should advertise.  This setting is supported in
@@ -142,6 +150,13 @@ does not automatically enable service discovery.
   
 - `meta` <code>([Meta][]: nil)</code> - Specifies a key-value map that annotates
   the Consul service with user-defined metadata.
+
+- `canary_meta` <code>([Meta][]: nil)</code> - Specifies a key-value map that
+  annotates the Consul service with user-defined metadata when the service is
+  part of an allocation that is currently a canary. Once the canary is
+  promoted, the registered meta will be updated to those specified in the
+  `meta` parameter. If this is not supplied, the registered meta will be set to
+  that of the `meta` parameter.
 
 ### `check` Parameters
 
@@ -212,6 +227,11 @@ scripts.
 
 - `protocol` `(string: "http")` - Specifies the protocol for the http-based
   health checks. Valid options are `http` and `https`.
+
+- `task` `(string: <required>)` - Specifies the task associated with this
+  check. Scripts are executed within the task's environment, and
+  `check_restart` stanzas will apply to the specified task. For `checks` on group
+  level `services` only.
 
 - `timeout` `(string: <required>)` - Specifies how long Consul will wait for a
   health check query to succeed. This is specified using a label suffix like
@@ -554,13 +574,13 @@ job "example" {
 
       service {
         name = "ipv6-redis"
-        port = db
+        port = "db"
         check {
           name     = "ipv6-redis-check"
           type     = "tcp"
           interval = "10s"
           timeout  = "2s"
-          port     = db
+          port     = "db"
           address_mode = "driver"
         }
       }
@@ -614,7 +634,6 @@ job "example" {
 The `service` and `check` stanzas can both specify the port number to 
 advertise and check directly since Nomad isn't managing any port assignments.
 
-
 - - -
 
 <sup><small>1</small></sup><small> Script checks are not supported for the
@@ -628,3 +647,4 @@ system of a task for that driver.</small>
 [network]: /docs/job-specification/network.html "Nomad network Job Specification"
 [qemu]: /docs/drivers/qemu.html "Nomad qemu Driver"
 [restart_stanza]: /docs/job-specification/restart.html "restart stanza"
+[connect]: /docs/job-specification/connect.html "Nomad Consul Connect Integration"

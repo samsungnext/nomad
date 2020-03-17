@@ -2,6 +2,7 @@ package logmon
 
 import (
 	"context"
+	"time"
 
 	"github.com/hashicorp/nomad/client/logmon/proto"
 	"github.com/hashicorp/nomad/helper/pluginutils/grpcutils"
@@ -14,6 +15,8 @@ type logmonClient struct {
 	doneCtx context.Context
 }
 
+const logmonRPCTimeout = 1 * time.Minute
+
 func (c *logmonClient) Start(cfg *LogConfig) error {
 	req := &proto.StartRequest{
 		LogDir:         cfg.LogDir,
@@ -25,12 +28,18 @@ func (c *logmonClient) Start(cfg *LogConfig) error {
 		StderrFifo:     cfg.StderrFifo,
 		FileExtension:  cfg.FileExtension,
 	}
-	_, err := c.client.Start(context.Background(), req)
+	ctx, cancel := context.WithTimeout(context.Background(), logmonRPCTimeout)
+	defer cancel()
+
+	_, err := c.client.Start(ctx, req)
 	return grpcutils.HandleGrpcErr(err, c.doneCtx)
 }
 
 func (c *logmonClient) Stop() error {
 	req := &proto.StopRequest{}
-	_, err := c.client.Stop(context.Background(), req)
+	ctx, cancel := context.WithTimeout(context.Background(), logmonRPCTimeout)
+	defer cancel()
+
+	_, err := c.client.Stop(ctx, req)
 	return grpcutils.HandleGrpcErr(err, c.doneCtx)
 }

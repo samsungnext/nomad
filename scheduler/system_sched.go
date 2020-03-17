@@ -275,7 +275,8 @@ func (s *SystemScheduler) computePlacements(place []allocTuple) error {
 	for _, missing := range place {
 		node, ok := nodeByID[missing.Alloc.NodeID]
 		if !ok {
-			return fmt.Errorf("could not find node %q", missing.Alloc.NodeID)
+			s.logger.Debug("could not find node %q", missing.Alloc.NodeID)
+			continue
 		}
 
 		// Update the set of placement nodes
@@ -327,6 +328,7 @@ func (s *SystemScheduler) computePlacements(place []allocTuple) error {
 			// Actual failure to start this task on this candidate node, report it individually
 			s.failedTGAllocs[missing.TaskGroup.Name] = s.ctx.Metrics()
 			s.addBlocked(node)
+
 			continue
 		}
 
@@ -363,9 +365,11 @@ func (s *SystemScheduler) computePlacements(place []allocTuple) error {
 			AllocatedResources: resources,
 			DesiredStatus:      structs.AllocDesiredStatusRun,
 			ClientStatus:       structs.AllocClientStatusPending,
+			// SharedResources is considered deprecated, will be removed in 0.11.
+			// It is only set for compat reasons
 			SharedResources: &structs.Resources{
 				DiskMB:   missing.TaskGroup.EphemeralDisk.SizeMB,
-				Networks: missing.TaskGroup.Networks,
+				Networks: resources.Shared.Networks,
 			},
 		}
 

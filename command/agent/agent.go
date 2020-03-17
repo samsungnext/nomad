@@ -53,7 +53,7 @@ type Agent struct {
 	config     *Config
 	configLock sync.Mutex
 
-	logger     log.Logger
+	logger     log.InterceptLogger
 	httpLogger log.Logger
 	logOutput  io.Writer
 
@@ -63,6 +63,9 @@ type Agent struct {
 
 	// consulCatalog is the subset of Consul's Catalog API Nomad uses.
 	consulCatalog consul.CatalogAPI
+
+	// consulACLs is Nomad's subset of Consul's ACL API Nomad uses.
+	consulACLs consul.ACLsAPI
 
 	// client is the launched Nomad Client. Can be nil if the agent isn't
 	// configured to run a client.
@@ -87,7 +90,7 @@ type Agent struct {
 }
 
 // NewAgent is used to create a new agent with the given configuration
-func NewAgent(config *Config, logger log.Logger, logOutput io.Writer, inmem *metrics.InmemSink) (*Agent, error) {
+func NewAgent(config *Config, logger log.InterceptLogger, logOutput io.Writer, inmem *metrics.InmemSink) (*Agent, error) {
 	a := &Agent{
 		config:     config,
 		logOutput:  logOutput,
@@ -132,6 +135,8 @@ func convertServerConfig(agentConfig *Config) (*nomad.Config, error) {
 		conf = nomad.DefaultConfig()
 	}
 	conf.DevMode = agentConfig.DevMode
+	conf.EnableDebug = agentConfig.EnableDebug
+
 	conf.Build = agentConfig.Version.VersionNumber()
 	if agentConfig.Region != "" {
 		conf.Region = agentConfig.Region
@@ -281,7 +286,9 @@ func convertServerConfig(agentConfig *Config) (*nomad.Config, error) {
 	if gcInterval := agentConfig.Server.JobGCInterval; gcInterval != "" {
 		dur, err := time.ParseDuration(gcInterval)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse job_gc_interval: %v", err)
+		} else if dur <= time.Duration(0) {
+			return nil, fmt.Errorf("job_gc_interval should be greater than 0s")
 		}
 		conf.JobGCInterval = dur
 	}
@@ -321,6 +328,11 @@ func convertServerConfig(agentConfig *Config) (*nomad.Config, error) {
 		return nil, fmt.Errorf("server_service_name must be set when auto_advertise is enabled")
 	}
 
+	// handle system scheduler preemption default
+	if agentConfig.Server.DefaultSchedulerConfig != nil {
+		conf.DefaultSchedulerConfig = *agentConfig.Server.DefaultSchedulerConfig
+	}
+
 	// Add the Consul and Vault configs
 	conf.ConsulConfig = agentConfig.Consul
 	conf.VaultConfig = agentConfig.Vault
@@ -333,6 +345,26 @@ func convertServerConfig(agentConfig *Config) (*nomad.Config, error) {
 	conf.DisableTaggedMetrics = agentConfig.Telemetry.DisableTaggedMetrics
 	conf.DisableDispatchedJobSummaryMetrics = agentConfig.Telemetry.DisableDispatchedJobSummaryMetrics
 	conf.BackwardsCompatibleMetrics = agentConfig.Telemetry.BackwardsCompatibleMetrics
+
+	// Parse Limits timeout from a string into durations
+	if d, err := time.ParseDuration(agentConfig.Limits.RPCHandshakeTimeout); err != nil {
+		return nil, fmt.Errorf("error parsing rpc_handshake_timeout: %v", err)
+	} else if d < 0 {
+		return nil, fmt.Errorf("rpc_handshake_timeout must be >= 0")
+	} else {
+		conf.RPCHandshakeTimeout = d
+	}
+
+	// Set max rpc conns; nil/0 == unlimited
+	// Leave a little room for streaming RPCs
+	minLimit := config.LimitsNonStreamingConnsPerClient + 5
+	if agentConfig.Limits.RPCMaxConnsPerClient == nil || *agentConfig.Limits.RPCMaxConnsPerClient == 0 {
+		conf.RPCMaxConnsPerClient = 0
+	} else if limit := *agentConfig.Limits.RPCMaxConnsPerClient; limit <= minLimit {
+		return nil, fmt.Errorf("rpc_max_conns_per_client must be > %d; found: %d", minLimit, limit)
+	} else {
+		conf.RPCMaxConnsPerClient = limit
+	}
 
 	return conf, nil
 }
@@ -434,6 +466,8 @@ func convertClientConfig(agentConfig *Config) (*clientconfig.Config, error) {
 	conf.Servers = agentConfig.Client.Servers
 	conf.LogLevel = agentConfig.LogLevel
 	conf.DevMode = agentConfig.DevMode
+	conf.EnableDebug = agentConfig.EnableDebug
+
 	if agentConfig.Region != "" {
 		conf.Region = agentConfig.Region
 	}
@@ -583,7 +617,7 @@ func (a *Agent) setupServer() error {
 	}
 
 	// Create the server
-	server, err := nomad.NewServer(conf, a.consulCatalog)
+	server, err := nomad.NewServer(conf, a.consulCatalog, a.consulACLs)
 	if err != nil {
 		return fmt.Errorf("server setup failed: %v", err)
 	}
@@ -835,40 +869,6 @@ func (a *Agent) reservePortsForClient(conf *clientconfig.Config) error {
 	return nil
 }
 
-// findLoopbackDevice iterates through all the interfaces on a machine and
-// returns the ip addr, mask of the loopback device
-func (a *Agent) findLoopbackDevice() (string, string, string, error) {
-	var ifcs []net.Interface
-	var err error
-	ifcs, err = net.Interfaces()
-	if err != nil {
-		return "", "", "", err
-	}
-	for _, ifc := range ifcs {
-		addrs, err := ifc.Addrs()
-		if err != nil {
-			return "", "", "", err
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip.IsLoopback() {
-				if ip.To4() == nil {
-					continue
-				}
-				return ifc.Name, ip.String(), addr.String(), nil
-			}
-		}
-	}
-
-	return "", "", "", fmt.Errorf("no loopback devices with IPV4 addr found")
-}
-
 // Leave is used gracefully exit. Clients will inform servers
 // of their departure so that allocations can be rescheduled.
 func (a *Agent) Leave() error {
@@ -1056,10 +1056,11 @@ func (a *Agent) setupConsul(consulConfig *config.ConsulConfig) error {
 		return err
 	}
 
-	// Determine version for TLSSkipVerify
-
 	// Create Consul Catalog client for service discovery.
 	a.consulCatalog = client.Catalog()
+
+	// Create Consul ACL client for managing tokens.
+	a.consulACLs = client.ACL()
 
 	// Create Consul Service client for service advertisement and checks.
 	isClient := false

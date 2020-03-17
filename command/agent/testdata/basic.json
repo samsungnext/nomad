@@ -113,6 +113,7 @@
   "consul": [
     {
       "address": "127.0.0.1:9500",
+      "allow_unauthenticated": true,
       "auth": "username:pass",
       "auto_advertise": true,
       "ca_file": "/path/to/ca/file",
@@ -145,6 +146,7 @@
   ],
   "leave_on_interrupt": true,
   "leave_on_terminate": true,
+  "log_file": "/var/log/nomad.log",
   "log_json": true,
   "log_level": "ERR",
   "name": "my-web",

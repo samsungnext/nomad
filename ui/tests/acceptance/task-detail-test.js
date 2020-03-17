@@ -1,7 +1,7 @@
 import { currentURL } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import Task from 'nomad-ui/tests/pages/allocations/task/detail';
 import moment from 'moment';
 
@@ -145,7 +145,9 @@ module('Acceptance | task detail', function(hooks) {
     await Task.visit({ id: 'not-a-real-allocation', name: task.name });
 
     assert.equal(
-      server.pretender.handledRequests.findBy('status', 404).url,
+      server.pretender.handledRequests
+        .filter(request => !request.url.includes('policy'))
+        .findBy('status', 404).url,
       '/v1/allocation/not-a-real-allocation',
       'A request to the nonexistent allocation is made'
     );
@@ -317,12 +319,13 @@ module('Acceptance | proxy task detail', function(hooks) {
     server.create('node');
     server.create('job', { createAllocations: false });
     allocation = server.create('allocation', 'withTaskWithPorts', { clientStatus: 'running' });
-    task = allocation.task_states.models[0];
 
-    task.kind = 'connect-proxy:task';
+    const taskState = allocation.task_states.models[0];
+    const task = server.schema.tasks.findBy({ name: taskState.name });
+    task.update('kind', 'connect-proxy:task');
     task.save();
 
-    await Task.visit({ id: allocation.id, name: task.name });
+    await Task.visit({ id: allocation.id, name: taskState.name });
   });
 
   test('a proxy tag is shown', async function(assert) {

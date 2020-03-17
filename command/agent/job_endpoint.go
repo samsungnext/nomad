@@ -633,6 +633,7 @@ func ApiJobToStructJob(job *api.Job) *structs.Job {
 		Datacenters: job.Datacenters,
 		Payload:     job.Payload,
 		Meta:        job.Meta,
+		ConsulToken: *job.ConsulToken,
 		VaultToken:  *job.VaultToken,
 		Constraints: ApiConstraintsToStructs(job.Constraints),
 		Affinities:  ApiAffinitiesToStructs(job.Affinities),
@@ -708,6 +709,10 @@ func ApiTgToStructsTG(taskGroup *api.TaskGroup, tg *structs.TaskGroup) {
 		Mode:     *taskGroup.RestartPolicy.Mode,
 	}
 
+	if taskGroup.ShutdownDelay != nil {
+		tg.ShutdownDelay = taskGroup.ShutdownDelay
+	}
+
 	if taskGroup.ReschedulePolicy != nil {
 		tg.ReschedulePolicy = &structs.ReschedulePolicy{
 			Attempts:      *taskGroup.ReschedulePolicy.Attempts,
@@ -753,7 +758,7 @@ func ApiTgToStructsTG(taskGroup *api.TaskGroup, tg *structs.TaskGroup) {
 				Name:     v.Name,
 				Type:     v.Type,
 				ReadOnly: v.ReadOnly,
-				Config:   v.Config,
+				Source:   v.Source,
 			}
 
 			tg.Volumes[k] = vol
@@ -813,9 +818,10 @@ func ApiTaskToStructsTask(apiTask *api.Task, structsTask *structs.Task) {
 		structsTask.VolumeMounts = make([]*structs.VolumeMount, l)
 		for i, mount := range apiTask.VolumeMounts {
 			structsTask.VolumeMounts[i] = &structs.VolumeMount{
-				Volume:      mount.Volume,
-				Destination: mount.Destination,
-				ReadOnly:    mount.ReadOnly,
+				Volume:          *mount.Volume,
+				Destination:     *mount.Destination,
+				ReadOnly:        *mount.ReadOnly,
+				PropagationMode: *mount.PropagationMode,
 			}
 		}
 	}
@@ -830,6 +836,7 @@ func ApiTaskToStructsTask(apiTask *api.Task, structsTask *structs.Task) {
 				CanaryTags:  service.CanaryTags,
 				AddressMode: service.AddressMode,
 				Meta:        helper.CopyMapStringString(service.Meta),
+				CanaryMeta:  helper.CopyMapStringString(service.CanaryMeta),
 			}
 
 			if l := len(service.Checks); l != 0 {
@@ -1009,6 +1016,7 @@ func ApiServicesToStructs(in []*api.Service) []*structs.Service {
 			CanaryTags:  s.CanaryTags,
 			AddressMode: s.AddressMode,
 			Meta:        helper.CopyMapStringString(s.Meta),
+			CanaryMeta:  helper.CopyMapStringString(s.CanaryMeta),
 		}
 
 		if l := len(s.Checks); l != 0 {
@@ -1064,13 +1072,16 @@ func ApiConsulConnectToStructs(in *api.ConsulConnect) *structs.ConsulConnect {
 	if in.SidecarService != nil {
 
 		out.SidecarService = &structs.ConsulSidecarService{
+			Tags: helper.CopySliceString(in.SidecarService.Tags),
 			Port: in.SidecarService.Port,
 		}
 
 		if in.SidecarService.Proxy != nil {
 
 			out.SidecarService.Proxy = &structs.ConsulProxy{
-				Config: in.SidecarService.Proxy.Config,
+				LocalServiceAddress: in.SidecarService.Proxy.LocalServiceAddress,
+				LocalServicePort:    in.SidecarService.Proxy.LocalServicePort,
+				Config:              in.SidecarService.Proxy.Config,
 			}
 
 			upstreams := make([]structs.ConsulUpstream, len(in.SidecarService.Proxy.Upstreams))

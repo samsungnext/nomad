@@ -10,11 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"gopkg.in/tomb.v2"
+	tomb "gopkg.in/tomb.v2"
 
-	"github.com/armon/go-metrics"
+	metrics "github.com/armon/go-metrics"
 	log "github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/nomad/structs/config"
 	vapi "github.com/hashicorp/vault/api"
@@ -148,7 +148,7 @@ type VaultStats struct {
 	TokenExpiry time.Time
 }
 
-// PurgeVaultAccessor is called to remove VaultAccessors from the system. If
+// PurgeVaultAccessorFn is called to remove VaultAccessors from the system. If
 // the function returns an error, the token will still be tracked and revocation
 // will retry till there is a success
 type PurgeVaultAccessorFn func(accessors []*structs.VaultAccessor) error
@@ -880,10 +880,12 @@ func (v *vaultClient) validateRole(role string) error {
 
 	// Read and parse the fields
 	var data struct {
-		ExplicitMaxTtl int `mapstructure:"explicit_max_ttl"`
-		Orphan         bool
-		Period         int
-		Renewable      bool
+		ExplicitMaxTtl      int `mapstructure:"explicit_max_ttl"`
+		TokenExplicitMaxTtl int `mapstructure:"token_explicit_max_ttl"`
+		Orphan              bool
+		Period              int
+		TokenPeriod         int `mapstructure:"token_period"`
+		Renewable           bool
 	}
 	if err := mapstructure.WeakDecode(rsecret.Data, &data); err != nil {
 		return fmt.Errorf("failed to parse Vault role's data block: %v", err)
@@ -895,11 +897,11 @@ func (v *vaultClient) validateRole(role string) error {
 		multierror.Append(&mErr, fmt.Errorf("Role must allow tokens to be renewed"))
 	}
 
-	if data.ExplicitMaxTtl != 0 {
+	if data.ExplicitMaxTtl != 0 || data.TokenExplicitMaxTtl != 0 {
 		multierror.Append(&mErr, fmt.Errorf("Role can not use an explicit max ttl. Token must be periodic."))
 	}
 
-	if data.Period == 0 {
+	if data.Period == 0 && data.TokenPeriod == 0 {
 		multierror.Append(&mErr, fmt.Errorf("Role must have a non-zero period to make tokens periodic."))
 	}
 
@@ -1012,7 +1014,7 @@ func (v *vaultClient) CreateToken(ctx context.Context, a *structs.Allocation, ta
 		validationErr = fmt.Errorf("Vault returned WrapInfo without WrappedAccessor. Secret warnings: %v", secret.Warnings)
 	}
 	if validationErr != nil {
-		v.logger.Warn("ailed to CreateToken", "error", err)
+		v.logger.Warn("failed to CreateToken", "error", validationErr)
 		return nil, structs.NewRecoverableError(validationErr, true)
 	}
 
@@ -1163,7 +1165,7 @@ func (v *vaultClient) parallelRevoke(ctx context.Context, accessors []*structs.V
 		handlers = maxParallelRevokes
 	}
 
-	// Create the Vault Tokens
+	// Revoke the Vault Token Accessors
 	input := make(chan *structs.VaultAccessor, handlers)
 	for i := 0; i < handlers; i++ {
 		g.Go(func() error {
@@ -1224,7 +1226,7 @@ func (v *vaultClient) revokeDaemon() {
 				continue
 			}
 
-			// Build the list of allocations that need to revoked while pruning any TTL'd checks
+			// Build the list of accessors that need to be revoked while pruning any TTL'd checks
 			revoking := make([]*structs.VaultAccessor, 0, len(v.revoking))
 			for va, ttl := range v.revoking {
 				if now.After(ttl) {

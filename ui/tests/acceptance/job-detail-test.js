@@ -2,7 +2,7 @@ import { currentURL } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
 import { selectChoose } from 'ember-power-select/test-support';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import moduleForJob from 'nomad-ui/tests/helpers/module-for-job';
 import JobDetail from 'nomad-ui/tests/pages/jobs/detail';
 import JobsList from 'nomad-ui/tests/pages/jobs/list';
@@ -47,7 +47,9 @@ moduleForJob(
       await JobDetail.visit({ id: 'not-a-real-job' });
 
       assert.equal(
-        server.pretender.handledRequests.findBy('status', 404).url,
+        server.pretender.handledRequests
+          .filter(request => !request.url.includes('policy'))
+          .findBy('status', 404).url,
         '/v1/job/not-a-real-job',
         'A request to the nonexistent job is made'
       );

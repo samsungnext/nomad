@@ -22,6 +22,7 @@ import (
 	cstate "github.com/hashicorp/nomad/client/state"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/client/vaultclient"
+	agentconsul "github.com/hashicorp/nomad/command/agent/consul"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/device"
@@ -60,6 +61,10 @@ type allocRunner struct {
 	// consulClient is the client used by the consul service hook for
 	// registering services and checks
 	consulClient consul.ConsulServiceAPI
+
+	// sidsClient is the client used by the service identity hook for
+	// managing SI tokens
+	sidsClient consul.ServiceIdentityAPI
 
 	// vaultClient is the used to manage Vault tokens
 	vaultClient vaultclient.VaultClient
@@ -156,6 +161,7 @@ func NewAllocRunner(config *Config) (*allocRunner, error) {
 		alloc:                    alloc,
 		clientConfig:             config.ClientConfig,
 		consulClient:             config.Consul,
+		sidsClient:               config.ConsulSI,
 		vaultClient:              config.Vault,
 		tasks:                    make(map[string]*taskrunner.TaskRunner, len(tg.Tasks)),
 		waitCh:                   make(chan struct{}),
@@ -209,6 +215,7 @@ func (ar *allocRunner) initTaskRunners(tasks []*structs.Task) error {
 			StateDB:             ar.stateDB,
 			StateUpdater:        ar,
 			Consul:              ar.consulClient,
+			ConsulSI:            ar.sidsClient,
 			Vault:               ar.vaultClient,
 			DeviceStatsReporter: ar.deviceStatsReporter,
 			DeviceManager:       ar.devicemanager,
@@ -270,6 +277,10 @@ func (ar *allocRunner) Run() {
 	ar.runTasks()
 
 POST:
+	if ar.isShuttingDown() {
+		return
+	}
+
 	// Run the postrun hooks
 	if err := ar.postrun(); err != nil {
 		ar.logger.Error("postrun failed", "error", err)
@@ -494,6 +505,9 @@ func (ar *allocRunner) handleTaskStateUpdates() {
 func (ar *allocRunner) killTasks() map[string]*structs.TaskState {
 	var mu sync.Mutex
 	states := make(map[string]*structs.TaskState, len(ar.tasks))
+
+	// run alloc prekill hooks
+	ar.preKillHooks()
 
 	// Kill leader first, synchronously
 	for name, tr := range ar.tasks {
@@ -859,6 +873,14 @@ func (ar *allocRunner) IsWaiting() bool {
 	return ar.prevAllocWatcher.IsWaiting()
 }
 
+// isShuttingDown returns true if the alloc runner is in a shutdown state
+// due to a call to Shutdown() or Destroy()
+func (ar *allocRunner) isShuttingDown() bool {
+	ar.destroyedLock.Lock()
+	defer ar.destroyedLock.Unlock()
+	return ar.shutdownLaunched
+}
+
 // DestroyCh is a channel that is closed when an allocrunner is closed due to
 // an explicit call to Destroy().
 func (ar *allocRunner) DestroyCh() <-chan struct{} {
@@ -987,6 +1009,39 @@ func (ar *allocRunner) RestartTask(taskName string, taskEvent *structs.TaskEvent
 	}
 
 	return tr.Restart(context.TODO(), taskEvent, false)
+}
+
+// Restart satisfies the WorkloadRestarter interface restarts all task runners
+// concurrently
+func (ar *allocRunner) Restart(ctx context.Context, event *structs.TaskEvent, failure bool) error {
+	waitCh := make(chan struct{})
+	var err *multierror.Error
+	var errMutex sync.Mutex
+
+	go func() {
+		var wg sync.WaitGroup
+		defer close(waitCh)
+		for tn, tr := range ar.tasks {
+			wg.Add(1)
+			go func(taskName string, r agentconsul.WorkloadRestarter) {
+				defer wg.Done()
+				e := r.Restart(ctx, event, failure)
+				if e != nil {
+					errMutex.Lock()
+					defer errMutex.Unlock()
+					err = multierror.Append(err, fmt.Errorf("failed to restart task %s: %v", taskName, e))
+				}
+			}(tn, tr)
+		}
+		wg.Wait()
+	}()
+
+	select {
+	case <-waitCh:
+	case <-ctx.Done():
+	}
+
+	return err.ErrorOrNil()
 }
 
 // RestartAll signalls all task runners in the allocation to restart and passes

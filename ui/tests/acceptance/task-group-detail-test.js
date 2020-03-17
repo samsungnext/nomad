@@ -1,7 +1,7 @@
 import { currentURL } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
-import setupMirage from 'ember-cli-mirage/test-support/setup-mirage';
+import { setupMirage } from 'ember-cli-mirage/test-support';
 import { formatBytes } from 'nomad-ui/helpers/format-bytes';
 import TaskGroup from 'nomad-ui/tests/pages/jobs/job/task-group';
 import JobsList from 'nomad-ui/tests/pages/jobs/list';
@@ -225,7 +225,9 @@ module('Acceptance | task group detail', function(hooks) {
     await TaskGroup.visit({ id: 'not-a-real-job', name: 'not-a-real-task-group' });
 
     assert.equal(
-      server.pretender.handledRequests.findBy('status', 404).url,
+      server.pretender.handledRequests
+        .filter(request => !request.url.includes('policy'))
+        .findBy('status', 404).url,
       '/v1/job/not-a-real-job',
       'A request to the nonexistent job is made'
     );

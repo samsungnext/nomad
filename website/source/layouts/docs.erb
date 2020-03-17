@@ -231,6 +231,9 @@
               </li>
             </ul>
           </li>
+          <li <%=sidebar_current("docs-commands-monitor") %>>
+            <a href="/docs/commands/monitor.html">monitor</a>
+          </li>
           <li<%= sidebar_current("docs-commands-namespace") %>>
             <a href="/docs/commands/namespace.html">namespace</a>
             <ul class="nav">
@@ -348,6 +351,17 @@
           <li<%= sidebar_current("docs-commands-status") %>>
             <a href="/docs/commands/status.html">status</a>
           </li>
+          <li<%= sidebar_current("docs-commands-system") %>>
+            <a href="/docs/commands/system.html">system</a>
+            <ul class="nav">
+              <li<%= sidebar_current("docs-commands-system-gc") %>>
+                <a href="/docs/commands/system/gc.html">gc</a>
+              </li>
+              <li<%= sidebar_current("docs-commands-system-reconcile-summaries") %>>
+                <a href="/docs/commands/system/reconcile-summaries.html">reconcile summaries</a>
+              </li>
+            </ul>
+          </li>
           <li<%= sidebar_current("docs-commands-ui") %>>
             <a href="/docs/commands/ui.html">ui</a>
           </li>
@@ -371,6 +385,9 @@
           <li<%= sidebar_current("docs-job-specification-check_restart")%>>
             <a href="/docs/job-specification/check_restart.html">check_restart</a>
           </li>
+          <li<%= sidebar_current("docs-job-specification-connect")%>>
+             <a href="/docs/job-specification/connect.html">connect</a>
+          <li>
           <li<%= sidebar_current("docs-job-specification-constraint")%>>
             <a href="/docs/job-specification/constraint.html">constraint</a>
           </li>
@@ -410,6 +427,9 @@
           <li<%= sidebar_current("docs-job-specification-periodic")%>>
             <a href="/docs/job-specification/periodic.html">periodic</a>
           </li>
+          <li<%= sidebar_current("docs-job-specification-proxy")%>>
+            <a href="/docs/job-specification/proxy.html">proxy</a>
+          <li>
           <li<%= sidebar_current("docs-job-specification-reschedule")%>>
             <a href="/docs/job-specification/reschedule.html">reschedule</a>
           </li>
@@ -421,6 +441,12 @@
           </li>
           <li<%= sidebar_current("docs-job-specification-service")%>>
             <a href="/docs/job-specification/service.html">service</a>
+          </li>
+          <li<%= sidebar_current("docs-job-specification-sidecar-service")%>>
+            <a href="/docs/job-specification/sidecar_service.html">sidecar_service</a>
+          </li>
+          <li<%= sidebar_current("docs-job-specification-sidecar-task")%>>
+            <a href="/docs/job-specification/sidecar_task.html">sidecar_task</a>
           </li>
           <li<%= sidebar_current("docs-job-specification-spread")%>>
             <a href="/docs/job-specification/spread.html">spread</a>
@@ -434,8 +460,17 @@
           <li<%= sidebar_current("docs-job-specification-update")%>>
             <a href="/docs/job-specification/update.html">update</a>
           </li>
+          <li<%= sidebar_current("docs-job-specification-upstreams")%>>
+            <a href="/docs/job-specification/upstreams.html">upstreams</a>
+          </li>
           <li<%= sidebar_current("docs-job-specification-vault")%>>
             <a href="/docs/job-specification/vault.html">vault</a>
+          </li>
+          <li<%= sidebar_current("docs-job-specification-volume")%>>
+            <a href="/docs/job-specification/volume.html">volume</a>
+          </li>
+          <li<%= sidebar_current("docs-job-specification-volume_mount")%>>
+            <a href="/docs/job-specification/volume_mount.html">volume_mount</a>
           </li>
         </ul>
       </li>
@@ -474,11 +509,22 @@
               <li<%= sidebar_current("docs-drivers-community-lxc") %>>
                 <a href="/docs/drivers/external/lxc.html">LXC</a>
               </li>
+              <li<%= sidebar_current("docs-drivers-community-podman") %>>
+                <a href="/docs/drivers/external/podman.html">Podman</a>
+              </li>
               <li<%= sidebar_current("docs-drivers-community-singularity") %>>
               <a href="/docs/drivers/external/singularity.html">Singularity</a>
             </li>
               <li<%= sidebar_current("docs-drivers-community-jail-task-driver") %>>
               <a href="/docs/drivers/external/jail-task-driver.html">Jailtask driver</a>
+            </li>
+            </li>
+              <li<%= sidebar_current("docs-drivers-community-pot") %>>
+              <a href="/docs/drivers/external/pot.html">Pot</a>
+            </li>
+            </li>
+              <li<%= sidebar_current("docs-drivers-community-firecracker-task-driver") %>>
+              <a href="/docs/drivers/external/firecracker-task-driver.html">Firecracker driver</a>
             </li>
             </ul>
           </li>
