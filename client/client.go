@@ -428,7 +428,7 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulServic
 		ParallelDestroys:    cfg.GCParallelDestroys,
 		ReservedDiskMB:      cfg.Node.Reserved.DiskMB,
 	}
-	c.garbageCollector = NewAllocGarbageCollector(c.logger, statsCollector, c, gcConfig) // POI
+	c.garbageCollector = NewAllocGarbageCollector(c.logger, statsCollector, c, gcConfig)
 	go c.garbageCollector.Run()
 
 	// Set the preconfigured list of static servers
@@ -656,11 +656,6 @@ func (c *Client) NodeID() string {
 // secretNodeID returns the secret node ID for the given client
 func (c *Client) secretNodeID() string {
 	return c.config.Node.SecretID
-}
-
-// AuthToken returns the ACL token for client RPC authentication
-func (c *Client) AuthToken() string {
-	return c.config.Node.Token
 }
 
 // RPCMajorVersion returns the structs.ApiMajorVersion supported by the
@@ -1601,11 +1596,8 @@ func (c *Client) submitNodeEvents(events []*structs.NodeEvent) error {
 		nodeID: events,
 	}
 	req := structs.EmitNodeEventsRequest{
-		NodeEvents: nodeEvents,
-		WriteRequest: structs.WriteRequest{
-			Region:    c.Region(),
-			AuthToken: c.AuthToken(),
-		},
+		NodeEvents:   nodeEvents,
+		WriteRequest: structs.WriteRequest{Region: c.Region()},
 	}
 	var resp structs.EmitNodeEventsResponse
 	if err := c.RPC("Node.EmitEvents", &req, &resp); err != nil {
@@ -1687,11 +1679,8 @@ func (c *Client) retryRegisterNode() {
 func (c *Client) registerNode() error {
 	node := c.Node()
 	req := structs.NodeRegisterRequest{
-		Node: node,
-		WriteRequest: structs.WriteRequest{
-			Region:    c.Region(),
-			AuthToken: c.AuthToken(),
-		},
+		Node:         node,
+		WriteRequest: structs.WriteRequest{Region: c.Region()},
 	}
 	var resp structs.NodeUpdateResponse
 	if err := c.RPC("Node.Register", &req, &resp); err != nil {
@@ -1720,12 +1709,9 @@ func (c *Client) registerNode() error {
 func (c *Client) updateNodeStatus() error {
 	start := time.Now()
 	req := structs.NodeUpdateStatusRequest{
-		NodeID: c.NodeID(),
-		Status: structs.NodeStatusReady,
-		WriteRequest: structs.WriteRequest{
-			Region:    c.Region(),
-			AuthToken: c.AuthToken(),
-		},
+		NodeID:       c.NodeID(),
+		Status:       structs.NodeStatusReady,
+		WriteRequest: structs.WriteRequest{Region: c.Region()},
 	}
 	var resp structs.NodeUpdateResponse
 	if err := c.RPC("Node.UpdateStatus", &req, &resp); err != nil {
@@ -1852,11 +1838,8 @@ func (c *Client) allocSync() {
 
 			// Send to server.
 			args := structs.AllocUpdateRequest{
-				Alloc: sync,
-				WriteRequest: structs.WriteRequest{
-					Region:    c.Region(),
-					AuthToken: c.AuthToken(),
-				},
+				Alloc:        sync,
+				WriteRequest: structs.WriteRequest{Region: c.Region()},
 			}
 
 			var resp structs.GenericResponse

@@ -86,7 +86,6 @@ type HostStatsCollector struct {
 // NewHostStatsCollector returns a HostStatsCollector. The allocDir is passed in
 // so that we can present the disk related statistics for the mountpoint where
 // the allocation directory lives
-// POI
 func NewHostStatsCollector(logger hclog.Logger, allocDir string, deviceStatsCollector DeviceStatsCollector) *HostStatsCollector {
 	logger = logger.Named("host_stats")
 	numCores := runtime.NumCPU()
@@ -276,7 +275,7 @@ func (h *HostCpuStatsCalculator) Calculate(times cpu.TimesStat) (idle float64, u
 	currentSystem := times.System
 	currentTotal := times.Total()
 	currentBusy := times.User + times.System + times.Nice + times.Iowait + times.Irq +
-		times.Softirq + times.Steal + times.Guest + times.GuestNice
+		times.Softirq + times.Steal + times.Guest + times.GuestNice + times.Stolen
 
 	deltaTotal := currentTotal - h.prevTotal
 	idle = ((currentIdle - h.prevIdle) / deltaTotal) * 100

@@ -504,26 +504,26 @@ MAIN:
 			// is called.
 			if resultCh, err := handle.WaitCh(context.Background()); err != nil {
 				tr.logger.Error("wait task failed", "error", err)
-				// Set a timer if timeout was specified, and add a new case if the timer elapsed
-			} else if tr.task.Timeout > 0 {
-				timer := time.NewTimer(tr.task.Timeout * time.Second)
-				select {
-				case <-tr.killCtx.Done():
-					// We can go through the normal should restart check since
-					// the restart tracker knowns it is killed
-					result = tr.handleKill()
-				case <-tr.shutdownCtx.Done():
-					// TaskRunner was told to exit immediately
-					return
-				case <-timer.C:
-					result = tr.handleTimeout()
-				case result = <-resultCh:
-				}
+				// 	// Set a timer if timeout was specified, and add a new case if the timer elapsed
+				// } else if tr.task.Timeout > 0 {
+				// 	timer := time.NewTimer(tr.task.Timeout * time.Second)
+				// 	select {
+				// 	case <-tr.killCtx.Done():
+				// 		// We can go through the normal should restart check since
+				// 		// the restart tracker knowns it is killed
+				// 		result = tr.handleKill()
+				// 	case <-tr.shutdownCtx.Done():
+				// 		// TaskRunner was told to exit immediately
+				// 		return
+				// 	case <-timer.C:
+				// 		result = tr.handleTimeout()
+				// 	case result = <-resultCh:
+				// 	}
 
-				// WaitCh returned a result
-				if retryWait := tr.handleTaskExitResult(result); retryWait {
-					goto WAIT
-				}
+				// 	// WaitCh returned a result
+				// 	if retryWait := tr.handleTaskExitResult(result); retryWait {
+				// 		goto WAIT
+				// 	}
 			} else {
 				select {
 				case <-tr.killCtx.Done():
@@ -644,7 +644,7 @@ func (tr *TaskRunner) emitExitResultEvent(result *drivers.ExitResult) {
 		SetSignal(result.Signal).
 		SetOOMKilled(result.OOMKilled).
 		SetExitMessage(result.Err).
-		SetTimeout(result.TimedOut)
+		// SetTimeout(result.TimedOut)
 
 	tr.EmitEvent(event)
 
@@ -821,16 +821,16 @@ func (tr *TaskRunner) initDriver() error {
 	return nil
 }
 
-func (tr *TaskRunner) handleTimeout() *drivers.ExitResult {
-	event := structs.NewTaskEvent(structs.TaskKilling).
-		SetKillReason("Timeout")
+// func (tr *TaskRunner) handleTimeout() *drivers.ExitResult {
+// 	event := structs.NewTaskEvent(structs.TaskKilling).
+// 		SetKillReason("Timeout")
 
-	tr.EmitEvent(event)
-	result := tr.handleKill()
-	result.ExitCode = 1
-	result.TimedOut = true
+// 	tr.EmitEvent(event)
+// 	result := tr.handleKill()
+// 	result.ExitCode = 1
+// 	result.TimedOut = true
 
-	return result
+// 	return result
 }
 
 // handleKill is used to handle the a request to kill a task. It will return

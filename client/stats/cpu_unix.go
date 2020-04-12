@@ -3,8 +3,6 @@
 package stats
 
 import (
-	"fmt"
-
 	shelpers "github.com/hashicorp/nomad/helper/stats"
 	"github.com/shirou/gopsutil/cpu"
 )
@@ -14,7 +12,7 @@ func (h *HostStatsCollector) collectCPUStats() (cpus []*CPUStats, totalTicks flo
 	ticksConsumed := 0.0
 	cpuStats, err := cpu.Times(true)
 	if err != nil {
-		return nil, 0.0, fmt.Errorf("failed to collect cpu.Times: %v", err)
+		return nil, 0.0, err
 	}
 	cs := make([]*CPUStats, len(cpuStats))
 	for idx, cpuStat := range cpuStats {
