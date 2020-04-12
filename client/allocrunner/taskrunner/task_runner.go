@@ -646,7 +646,7 @@ func (tr *TaskRunner) emitExitResultEvent(result *drivers.ExitResult) {
 		SetExitMessage(result.Err).
 		// SetTimeout(result.TimedOut)
 
-	tr.EmitEvent(event)
+		tr.EmitEvent(event)
 
 	if result.OOMKilled && !tr.clientConfig.DisableTaggedMetrics {
 		metrics.IncrCounterWithLabels([]string{"client", "allocs", "oom_killed"}, 1, tr.baseLabels)
@@ -831,7 +831,7 @@ func (tr *TaskRunner) initDriver() error {
 // 	result.TimedOut = true
 
 // 	return result
-}
+// }
 
 // handleKill is used to handle the a request to kill a task. It will return
 // the handle exit result if one is available and store any error in the task
