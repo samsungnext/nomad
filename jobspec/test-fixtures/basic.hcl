@@ -160,8 +160,8 @@ job "binstore-storagelocker" {
       }
 
       logs {
-        max_files      = 14
-        max_file_size  = 101
+        max_files     = 14
+        max_file_size = 101
       }
 
       env {

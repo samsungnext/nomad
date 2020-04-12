@@ -33,12 +33,12 @@ func InfoWithContext(ctx context.Context) (*InfoStat, error) {
 	result.Hostname = hostname
 
 	// Parse versions from output of `uname(1)`
-	uname, err := exec.LookPath("uname")
+	uname, err := exec.LookPath("/usr/bin/uname")
 	if err != nil {
 		return nil, err
 	}
 
-	out, err := invoke.CommandWithContext(ctx, uname, "-srv")
+	out, err := invoke.Command(uname, "-srv")
 	if err != nil {
 		return nil, err
 	}
@@ -52,11 +52,6 @@ func InfoWithContext(ctx context.Context) (*InfoStat, error) {
 	}
 	if len(fields) == 3 {
 		result.PlatformVersion = fields[2]
-	}
-
-	kernelArch, err := kernelArch()
-	if err == nil {
-		result.KernelArch = kernelArch
 	}
 
 	// Find distribution name from /etc/release
@@ -90,9 +85,9 @@ func InfoWithContext(ctx context.Context) (*InfoStat, error) {
 	switch result.Platform {
 	case "SmartOS":
 		// If everything works, use the current zone ID as the HostID if present.
-		zonename, err := exec.LookPath("zonename")
+		zonename, err := exec.LookPath("/usr/bin/zonename")
 		if err == nil {
-			out, err := invoke.CommandWithContext(ctx, zonename)
+			out, err := invoke.Command(zonename)
 			if err == nil {
 				sc := bufio.NewScanner(bytes.NewReader(out))
 				for sc.Scan() {
@@ -117,9 +112,9 @@ func InfoWithContext(ctx context.Context) (*InfoStat, error) {
 	// this point there are no hardware facilities available.  This behavior
 	// matches that of other supported OSes.
 	if result.HostID == "" {
-		hostID, err := exec.LookPath("hostid")
+		hostID, err := exec.LookPath("/usr/bin/hostid")
 		if err == nil {
-			out, err := invoke.CommandWithContext(ctx, hostID)
+			out, err := invoke.Command(hostID)
 			if err == nil {
 				sc := bufio.NewScanner(bytes.NewReader(out))
 				for sc.Scan() {
@@ -156,12 +151,12 @@ func BootTime() (uint64, error) {
 }
 
 func BootTimeWithContext(ctx context.Context) (uint64, error) {
-	kstat, err := exec.LookPath("kstat")
+	kstat, err := exec.LookPath("/usr/bin/kstat")
 	if err != nil {
 		return 0, err
 	}
 
-	out, err := invoke.CommandWithContext(ctx, kstat, "-p", "unix:0:system_misc:boot_time")
+	out, err := invoke.Command(kstat, "-p", "unix:0:system_misc:boot_time")
 	if err != nil {
 		return 0, err
 	}
@@ -220,12 +215,12 @@ func KernelVersion() (string, error) {
 
 func KernelVersionWithContext(ctx context.Context) (string, error) {
 	// Parse versions from output of `uname(1)`
-	uname, err := exec.LookPath("uname")
+	uname, err := exec.LookPath("/usr/bin/uname")
 	if err != nil {
 		return "", err
 	}
 
-	out, err := invoke.CommandWithContext(ctx, uname, "-srv")
+	out, err := invoke.Command(uname, "-srv")
 	if err != nil {
 		return "", err
 	}
@@ -235,19 +230,4 @@ func KernelVersionWithContext(ctx context.Context) (string, error) {
 		return fields[1], nil
 	}
 	return "", fmt.Errorf("could not get kernel version")
-}
-
-func PlatformInformation() (platform string, family string, version string, err error) {
-	return PlatformInformationWithContext(context.Background())
-}
-
-func PlatformInformationWithContext(ctx context.Context) (platform string, family string, version string, err error) {
-	/* This is not finished yet at all. Please contribute! */
-
-	version, err = KernelVersion()
-	if err != nil {
-		return "", "", "", err
-	}
-
-	return "solaris", "solaris", version, nil
 }

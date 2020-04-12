@@ -12,7 +12,6 @@
 #     https://www.nomadproject.io/docs/job-specification/job.html
 #
 job "example8" {
-
   datacenters = ["dc1"]
 
   type = "batch"
@@ -32,19 +31,18 @@ job "example8" {
 
       config {
         command = "/system/bin/curl"
-        args = ["-d", "i am a job on android", "-X", "POST", "http://ptsv2.com/t/miaaaau/post"]
-
+        args    = ["-d", "i am a job on android", "-X", "POST", "http://ptsv2.com/t/miaaaau/post"]
       }
 
       resources {
         cpu    = 20
         memory = 12
+
         network {
           mbits = 10
-          port "db" {}
+          port  "db"  {}
         }
       }
-
     }
   }
 }

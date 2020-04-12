@@ -52,13 +52,12 @@ func SwapMemoryWithContext(ctx context.Context) (*SwapMemoryStat, error) {
 }
 
 func zoneName() (string, error) {
-	zonename, err := exec.LookPath("zonename")
+	zonename, err := exec.LookPath("/usr/bin/zonename")
 	if err != nil {
 		return "", err
 	}
 
-	ctx := context.Background()
-	out, err := invoke.CommandWithContext(ctx, zonename)
+	out, err := invoke.Command(zonename)
 	if err != nil {
 		return "", err
 	}
@@ -69,13 +68,12 @@ func zoneName() (string, error) {
 var globalZoneMemoryCapacityMatch = regexp.MustCompile(`memory size: ([\d]+) Megabytes`)
 
 func globalZoneMemoryCapacity() (uint64, error) {
-	prtconf, err := exec.LookPath("prtconf")
+	prtconf, err := exec.LookPath("/usr/sbin/prtconf")
 	if err != nil {
 		return 0, err
 	}
 
-	ctx := context.Background()
-	out, err := invoke.CommandWithContext(ctx, prtconf)
+	out, err := invoke.Command(prtconf)
 	if err != nil {
 		return 0, err
 	}
@@ -96,13 +94,12 @@ func globalZoneMemoryCapacity() (uint64, error) {
 var kstatMatch = regexp.MustCompile(`([^\s]+)[\s]+([^\s]*)`)
 
 func nonGlobalZoneMemoryCapacity() (uint64, error) {
-	kstat, err := exec.LookPath("kstat")
+	kstat, err := exec.LookPath("/usr/bin/kstat")
 	if err != nil {
 		return 0, err
 	}
 
-	ctx := context.Background()
-	out, err := invoke.CommandWithContext(ctx, kstat, "-p", "-c", "zone_memory_cap", "memory_cap:*:*:physcap")
+	out, err := invoke.Command(kstat, "-p", "-c", "zone_memory_cap", "memory_cap:*:*:physcap")
 	if err != nil {
 		return 0, err
 	}

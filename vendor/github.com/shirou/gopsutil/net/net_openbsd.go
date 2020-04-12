@@ -41,7 +41,7 @@ func ParseNetstat(output string, mode string,
 			continue
 		}
 		base := 1
-		// sometimes Address is omitted
+		// sometimes Address is ommitted
 		if len(values) < columns {
 			base = 0
 		}
@@ -106,11 +106,11 @@ func IOCountersWithContext(ctx context.Context, pernic bool) ([]IOCountersStat, 
 	if err != nil {
 		return nil, err
 	}
-	out, err := invoke.CommandWithContext(ctx, netstat, "-inb")
+	out, err := invoke.Command(netstat, "-inb")
 	if err != nil {
 		return nil, err
 	}
-	out2, err := invoke.CommandWithContext(ctx, netstat, "-ind")
+	out2, err := invoke.Command(netstat, "-ind")
 	if err != nil {
 		return nil, err
 	}
@@ -154,14 +154,6 @@ func FilterCounters() ([]FilterStat, error) {
 
 func FilterCountersWithContext(ctx context.Context) ([]FilterStat, error) {
 	return nil, errors.New("NetFilterCounters not implemented for openbsd")
-}
-
-func ConntrackStats(percpu bool) ([]ConntrackStat, error) {
-	return ConntrackStatsWithContext(context.Background(), percpu)
-}
-
-func ConntrackStatsWithContext(ctx context.Context, percpu bool) ([]ConntrackStat, error) {
-	return nil, common.ErrNotImplementedError
 }
 
 // NetProtoCounters returns network statistics for the entire system
@@ -298,7 +290,7 @@ func ConnectionsWithContext(ctx context.Context, kind string) ([]ConnectionStat,
 	if err != nil {
 		return nil, err
 	}
-	out, err := invoke.CommandWithContext(ctx, netstat, args...)
+	out, err := invoke.Command(netstat, args...)
 
 	if err != nil {
 		return nil, err
