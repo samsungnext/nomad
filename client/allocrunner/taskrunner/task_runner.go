@@ -644,7 +644,7 @@ func (tr *TaskRunner) emitExitResultEvent(result *drivers.ExitResult) {
 		SetExitCode(result.ExitCode).
 		SetSignal(result.Signal).
 		SetOOMKilled(result.OOMKilled).
-		SetExitMessage(result.Err).
+		SetExitMessage(result.Err)//.
 		// SetTimeout(result.TimedOut)
 
 		tr.EmitEvent(event)
