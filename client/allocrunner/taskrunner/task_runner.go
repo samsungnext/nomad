@@ -822,18 +822,6 @@ func (tr *TaskRunner) initDriver() error {
 	return nil
 }
 
-// func (tr *TaskRunner) handleTimeout() *drivers.ExitResult {
-// 	event := structs.NewTaskEvent(structs.TaskKilling).
-// 		SetKillReason("Timeout")
-
-// 	tr.EmitEvent(event)
-// 	result := tr.handleKill()
-// 	result.ExitCode = 1
-// 	result.TimedOut = true
-
-// 	return result
-// }
-
 // handleKill is used to handle the a request to kill a task. It will return
 // the handle exit result if one is available and store any error in the task
 // runner killErr value.
