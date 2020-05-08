@@ -34,8 +34,6 @@ import (
 	"github.com/hashicorp/nomad/version"
 	"github.com/mitchellh/cli"
 	"github.com/posener/complete"
-
-	"bitbucket.org/avd/go-ipc/mq"
 )
 
 // gracefulTimeout controls how long we wait before forcefully terminating
@@ -643,12 +641,6 @@ func (c *Command) Run(args []string) int {
 		return 1
 	}
 
-	// Initialize the jwt
-	if err := c.setupJWT(config); err != nil {
-		c.Ui.Error(fmt.Sprintf("Error initializing telemetry: %s", err))
-		return 1
-	}
-
 	// Create the agent
 	if err := c.setupAgent(config, logger, logOutput, inmem); err != nil {
 		logGate.Flush()
@@ -1028,8 +1020,11 @@ func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
 		if nodeName == "" {
 			nodeName = "nomad"
 		}
+		fmt.Print("telConfig.mqRefreshTime")
+		fmt.Print(telConfig.mqRefreshTime)
 		sink, err := prometheus.NewPrometheusPushSink(telConfig.PrometheusPushAddr,
-			telConfig.prometheusPushInterval, nodeName)
+			telConfig.prometheusPushInterval, nodeName,
+			config.JWT.Enabled, telConfig.MqName, telConfig.mqRefreshTime)
 		if err != nil {
 			return inm, err
 		}
@@ -1093,35 +1088,6 @@ func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
 	}
 
 	return inm, nil
-}
-
-func shmJWTToken() {
-	mq2, err := mq.Open("mq", 0)
-	if err != nil {
-		panic("open")
-	}
-	defer mq2.Close()
-
-	received := make([]byte, 1)
-
-	for true {
-		_, err = mq2.Receive(received)
-		if err != nil {
-			panic("receive")
-		}
-		fmt.Print("received: ")
-		fmt.Println(received)
-		time.Sleep(1 * time.Second)
-	}
-}
-
-// setupJWT is used ot setup the jwt
-func (c *Command) setupJWT(config *Config) error {
-	if config.JWT.Enabled {
-		go shmJWTToken()
-	}
-
-	return nil
 }
 
 func (c *Command) startupJoin(config *Config) error {

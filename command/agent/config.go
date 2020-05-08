@@ -543,6 +543,9 @@ type Telemetry struct {
 	PrometheusPushAddr       string        `hcl:"prometheus_push_address"`
 	PrometheusPushInterval   string        `hcl:"prometheus_push_interval"`
 	prometheusPushInterval   time.Duration `hcl:"-"`
+	MqName                   string        `hcl:"mq_name"`
+	MqRefreshTime            string        `hcl:"mq_refresh_time"`
+	mqRefreshTime            time.Duration `hcl:"-"`
 	DisableHostname          bool          `hcl:"disable_hostname"`
 	UseNodeName              bool          `hcl:"use_node_name"`
 	CollectionInterval       string        `hcl:"collection_interval"`
@@ -819,6 +822,7 @@ func DevConfig(mode *devModeConfig) *Config {
 	conf.Telemetry.PrometheusMetrics = true
 	conf.Telemetry.PrometheusPushAddr = ""
 	conf.Telemetry.PrometheusPushInterval = "5s"
+	conf.Telemetry.MqName = ""
 	conf.Telemetry.PublishAllocationMetrics = true
 	conf.Telemetry.PublishNodeMetrics = true
 
@@ -1564,6 +1568,19 @@ func (a *Telemetry) Merge(b *Telemetry) *Telemetry {
 	}
 	if b.prometheusPushInterval != 0 {
 		result.prometheusPushInterval = b.prometheusPushInterval
+	}
+	if b.MqName != "" {
+		result.MqName = b.MqName
+	}
+	if b.MqRefreshTime != "" {
+		result.MqRefreshTime = b.MqRefreshTime
+		fmt.Print("result.MqRefreshTime")
+		fmt.Print(result.MqRefreshTime)
+	}
+	if b.mqRefreshTime != 0 {
+		result.mqRefreshTime = b.mqRefreshTime
+		fmt.Print("result.mqRefreshTime")
+		fmt.Print(result.mqRefreshTime)
 	}
 	if b.DisableHostname {
 		result.DisableHostname = true
