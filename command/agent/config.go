@@ -102,6 +102,9 @@ type Config struct {
 	// Telemetry is used to configure sending telemetry
 	Telemetry *Telemetry `hcl:"telemetry"`
 
+	// JWT is used to enable JWT
+	JWT *JWTConfig `hcl:"jwt"`
+
 	// LeaveOnInt is used to gracefully leave on the interrupt signal
 	LeaveOnInt bool `hcl:"leave_on_interrupt"`
 
@@ -336,6 +339,12 @@ type ACLConfig struct {
 
 	// ExtraKeysHCL is used by hcl to surface unexpected keys
 	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
+}
+
+// JWTConfig is configuration specific to the JWT
+type JWTConfig struct {
+	// Enabled controls if we are enforce and manage ACLs
+	Enabled bool `hcl:"enabled"`
 }
 
 // ServerConfig is configuration specific to the server mode
@@ -870,12 +879,15 @@ func DefaultConfig() *Config {
 			TokenTTL:    30 * time.Second,
 			PolicyTTL:   30 * time.Second,
 		},
+		JWT: &JWTConfig{
+			Enabled: false,
+		},
 		SyslogFacility: "LOCAL0",
 		Telemetry: &Telemetry{
 			PrometheusPushInterval: "10s",
 			prometheusPushInterval: 10 * time.Second,
-			CollectionInterval: "1s",
-			collectionInterval: 1 * time.Second,
+			CollectionInterval:     "1s",
+			collectionInterval:     1 * time.Second,
 		},
 		TLSConfig:          &config.TLSConfig{},
 		Sentinel:           &config.SentinelConfig{},
@@ -1010,6 +1022,14 @@ func (c *Config) Merge(b *Config) *Config {
 		result.ACL = &server
 	} else if b.ACL != nil {
 		result.ACL = result.ACL.Merge(b.ACL)
+	}
+
+	// Apply the jwt config
+	if result.JWT == nil && b.JWT != nil {
+		server := *b.JWT
+		result.JWT = &server
+	} else if b.JWT != nil {
+		result.JWT = result.JWT.Merge(b.JWT)
 	}
 
 	// Apply the ports config
@@ -1282,6 +1302,17 @@ func (a *ACLConfig) Merge(b *ACLConfig) *ACLConfig {
 	if b.ReplicationToken != "" {
 		result.ReplicationToken = b.ReplicationToken
 	}
+	return &result
+}
+
+// Merge is used to merge two JWT configs together. The settings from the input always take precedence.
+func (a *JWTConfig) Merge(b *JWTConfig) *JWTConfig {
+	result := *a
+
+	if b.Enabled {
+		result.Enabled = true
+	}
+
 	return &result
 }
 

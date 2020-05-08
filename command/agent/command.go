@@ -34,6 +34,8 @@ import (
 	"github.com/hashicorp/nomad/version"
 	"github.com/mitchellh/cli"
 	"github.com/posener/complete"
+
+	"bitbucket.org/avd/go-ipc/mq"
 )
 
 // gracefulTimeout controls how long we wait before forcefully terminating
@@ -72,6 +74,7 @@ func (c *Command) readConfig() *Config {
 		},
 		Vault: &config.VaultConfig{},
 		ACL:   &ACLConfig{},
+		JWT:   &JWTConfig{},
 	}
 
 	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
@@ -187,6 +190,9 @@ func (c *Command) readConfig() *Config {
 	// ACL options
 	flags.BoolVar(&cmdConfig.ACL.Enabled, "acl-enabled", false, "")
 	flags.StringVar(&cmdConfig.ACL.ReplicationToken, "acl-replication-token", "", "")
+
+	// JWT options
+	flags.BoolVar(&cmdConfig.JWT.Enabled, "jwt-enabled", false, "")
 
 	if err := flags.Parse(c.args); err != nil {
 		return nil
@@ -580,6 +586,7 @@ func (c *Command) AutocompleteFlags() complete.Flags {
 		"-vault-tls-server-name":         complete.PredictAnything,
 		"-acl-enabled":                   complete.PredictNothing,
 		"-acl-replication-token":         complete.PredictAnything,
+		"-jwt-enabled":                   complete.PredictAnything,
 	}
 }
 
@@ -597,6 +604,7 @@ func (c *Command) Run(args []string) int {
 
 	// Parse our configs
 	c.args = args
+
 	config := c.readConfig()
 	if config == nil {
 		return 1
@@ -631,6 +639,12 @@ func (c *Command) Run(args []string) int {
 	// Initialize the telemetry
 	inmem, err := c.setupTelemetry(config)
 	if err != nil {
+		c.Ui.Error(fmt.Sprintf("Error initializing telemetry: %s", err))
+		return 1
+	}
+
+	// Initialize the jwt
+	if err := c.setupJWT(config); err != nil {
 		c.Ui.Error(fmt.Sprintf("Error initializing telemetry: %s", err))
 		return 1
 	}
@@ -1079,6 +1093,35 @@ func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
 	}
 
 	return inm, nil
+}
+
+func shmJWTToken() {
+	mq2, err := mq.Open("mq", 0)
+	if err != nil {
+		panic("open")
+	}
+	defer mq2.Close()
+
+	received := make([]byte, 1)
+
+	for true {
+		_, err = mq2.Receive(received)
+		if err != nil {
+			panic("receive")
+		}
+		fmt.Print("received: ")
+		fmt.Println(received)
+		time.Sleep(1 * time.Second)
+	}
+}
+
+// setupJWT is used ot setup the jwt
+func (c *Command) setupJWT(config *Config) error {
+	if config.JWT.Enabled {
+		go shmJWTToken()
+	}
+
+	return nil
 }
 
 func (c *Command) startupJoin(config *Config) error {
