@@ -1020,11 +1020,16 @@ func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
 		if nodeName == "" {
 			nodeName = "nomad"
 		}
-		fmt.Print("telConfig.mqRefreshTime")
-		fmt.Print(telConfig.mqRefreshTime)
+
+		jwtEnabled := false
+
+		if telConfig.JwtEnabled || config.JWT.Enabled {
+			jwtEnabled = true
+		}
+
 		sink, err := prometheus.NewPrometheusPushSink(telConfig.PrometheusPushAddr,
 			telConfig.prometheusPushInterval, nodeName,
-			config.JWT.Enabled, telConfig.MqName, telConfig.mqRefreshTime)
+			jwtEnabled, telConfig.MqName, telConfig.mqRefreshTime)
 		if err != nil {
 			return inm, err
 		}

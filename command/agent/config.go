@@ -543,6 +543,7 @@ type Telemetry struct {
 	PrometheusPushAddr       string        `hcl:"prometheus_push_address"`
 	PrometheusPushInterval   string        `hcl:"prometheus_push_interval"`
 	prometheusPushInterval   time.Duration `hcl:"-"`
+	JwtEnabled               bool          `hcl:"jwt_enabled"`
 	MqName                   string        `hcl:"mq_name"`
 	MqRefreshTime            string        `hcl:"mq_refresh_time"`
 	mqRefreshTime            time.Duration `hcl:"-"`
@@ -822,6 +823,7 @@ func DevConfig(mode *devModeConfig) *Config {
 	conf.Telemetry.PrometheusMetrics = true
 	conf.Telemetry.PrometheusPushAddr = ""
 	conf.Telemetry.PrometheusPushInterval = "5s"
+	conf.Telemetry.JwtEnabled = false
 	conf.Telemetry.MqName = ""
 	conf.Telemetry.PublishAllocationMetrics = true
 	conf.Telemetry.PublishNodeMetrics = true
@@ -1568,6 +1570,9 @@ func (a *Telemetry) Merge(b *Telemetry) *Telemetry {
 	}
 	if b.prometheusPushInterval != 0 {
 		result.prometheusPushInterval = b.prometheusPushInterval
+	}
+	if b.JwtEnabled {
+		result.JwtEnabled = true
 	}
 	if b.MqName != "" {
 		result.MqName = b.MqName
