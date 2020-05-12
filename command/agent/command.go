@@ -212,6 +212,12 @@ func (c *Command) readConfig() *Config {
 				return nil
 			}
 			cmdConfig.Client.Meta[parts[0]] = parts[1]
+
+			if parts[0] == "AccessToken" {
+				cmdConfig.JWT.TelemetryAccessToken = parts[1]
+			} else if parts[0] == "RefreshToken" {
+				cmdConfig.JWT.TelemetryRefreshToken = parts[1]
+			}
 		}
 	}
 
@@ -1029,7 +1035,7 @@ func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
 
 		sink, err := prometheus.NewPrometheusPushSink(telConfig.PrometheusPushAddr,
 			telConfig.prometheusPushInterval, nodeName,
-			jwtEnabled, telConfig.MqName, telConfig.mqRefreshTime)
+			jwtEnabled, config.JWT.TelemetryAccessToken, config.JWT.TelemetryRefreshToken)
 		if err != nil {
 			return inm, err
 		}

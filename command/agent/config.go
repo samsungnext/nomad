@@ -343,8 +343,10 @@ type ACLConfig struct {
 
 // JWTConfig is configuration specific to the JWT
 type JWTConfig struct {
-	// Enabled controls if we are enforce and manage ACLs
-	Enabled bool `hcl:"enabled"`
+	Enabled               bool   `hcl:"enabled"`
+	TelemetryAccessToken  string `hcl:"telemetry_access_token"`
+	TelemetryRefreshToken string `hcl:"telemetry_refresh_token"`
+	AuthServer            string `hcl:"jwt_auth_server"`
 }
 
 // ServerConfig is configuration specific to the server mode
@@ -544,9 +546,6 @@ type Telemetry struct {
 	PrometheusPushInterval   string        `hcl:"prometheus_push_interval"`
 	prometheusPushInterval   time.Duration `hcl:"-"`
 	JwtEnabled               bool          `hcl:"jwt_enabled"`
-	MqName                   string        `hcl:"mq_name"`
-	MqRefreshTime            string        `hcl:"mq_refresh_time"`
-	mqRefreshTime            time.Duration `hcl:"-"`
 	DisableHostname          bool          `hcl:"disable_hostname"`
 	UseNodeName              bool          `hcl:"use_node_name"`
 	CollectionInterval       string        `hcl:"collection_interval"`
@@ -824,7 +823,6 @@ func DevConfig(mode *devModeConfig) *Config {
 	conf.Telemetry.PrometheusPushAddr = ""
 	conf.Telemetry.PrometheusPushInterval = "5s"
 	conf.Telemetry.JwtEnabled = false
-	conf.Telemetry.MqName = ""
 	conf.Telemetry.PublishAllocationMetrics = true
 	conf.Telemetry.PublishNodeMetrics = true
 
@@ -1318,6 +1316,15 @@ func (a *JWTConfig) Merge(b *JWTConfig) *JWTConfig {
 	if b.Enabled {
 		result.Enabled = true
 	}
+	if b.TelemetryAccessToken != "" {
+		result.TelemetryAccessToken = b.TelemetryAccessToken
+	}
+	if b.TelemetryRefreshToken != "" {
+		result.TelemetryRefreshToken = b.TelemetryRefreshToken
+	}
+	if b.AuthServer != "" {
+		result.AuthServer = b.AuthServer
+	}
 
 	return &result
 }
@@ -1573,19 +1580,6 @@ func (a *Telemetry) Merge(b *Telemetry) *Telemetry {
 	}
 	if b.JwtEnabled {
 		result.JwtEnabled = true
-	}
-	if b.MqName != "" {
-		result.MqName = b.MqName
-	}
-	if b.MqRefreshTime != "" {
-		result.MqRefreshTime = b.MqRefreshTime
-		fmt.Print("result.MqRefreshTime")
-		fmt.Print(result.MqRefreshTime)
-	}
-	if b.mqRefreshTime != 0 {
-		result.mqRefreshTime = b.mqRefreshTime
-		fmt.Print("result.mqRefreshTime")
-		fmt.Print(result.mqRefreshTime)
 	}
 	if b.DisableHostname {
 		result.DisableHostname = true
