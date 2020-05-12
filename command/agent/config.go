@@ -102,6 +102,9 @@ type Config struct {
 	// Telemetry is used to configure sending telemetry
 	Telemetry *Telemetry `hcl:"telemetry"`
 
+	// JWT is used to enable JWT
+	JWT *JWTConfig `hcl:"jwt"`
+
 	// LeaveOnInt is used to gracefully leave on the interrupt signal
 	LeaveOnInt bool `hcl:"leave_on_interrupt"`
 
@@ -338,6 +341,14 @@ type ACLConfig struct {
 	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
 }
 
+// JWTConfig is configuration specific to the JWT
+type JWTConfig struct {
+	Enabled               bool   `hcl:"enabled"`
+	TelemetryAccessToken  string `hcl:"telemetry_access_token"`
+	TelemetryRefreshToken string `hcl:"telemetry_refresh_token"`
+	AuthServer            string `hcl:"jwt_auth_server"`
+}
+
 // ServerConfig is configuration specific to the server mode
 type ServerConfig struct {
 	// Enabled controls if we are a server
@@ -534,6 +545,7 @@ type Telemetry struct {
 	PrometheusPushAddr       string        `hcl:"prometheus_push_address"`
 	PrometheusPushInterval   string        `hcl:"prometheus_push_interval"`
 	prometheusPushInterval   time.Duration `hcl:"-"`
+	JwtEnabled               bool          `hcl:"jwt_enabled"`
 	DisableHostname          bool          `hcl:"disable_hostname"`
 	UseNodeName              bool          `hcl:"use_node_name"`
 	CollectionInterval       string        `hcl:"collection_interval"`
@@ -810,6 +822,7 @@ func DevConfig(mode *devModeConfig) *Config {
 	conf.Telemetry.PrometheusMetrics = true
 	conf.Telemetry.PrometheusPushAddr = ""
 	conf.Telemetry.PrometheusPushInterval = "5s"
+	conf.Telemetry.JwtEnabled = false
 	conf.Telemetry.PublishAllocationMetrics = true
 	conf.Telemetry.PublishNodeMetrics = true
 
@@ -870,12 +883,15 @@ func DefaultConfig() *Config {
 			TokenTTL:    30 * time.Second,
 			PolicyTTL:   30 * time.Second,
 		},
+		JWT: &JWTConfig{
+			Enabled: false,
+		},
 		SyslogFacility: "LOCAL0",
 		Telemetry: &Telemetry{
 			PrometheusPushInterval: "10s",
 			prometheusPushInterval: 10 * time.Second,
-			CollectionInterval: "1s",
-			collectionInterval: 1 * time.Second,
+			CollectionInterval:     "1s",
+			collectionInterval:     1 * time.Second,
 		},
 		TLSConfig:          &config.TLSConfig{},
 		Sentinel:           &config.SentinelConfig{},
@@ -1010,6 +1026,14 @@ func (c *Config) Merge(b *Config) *Config {
 		result.ACL = &server
 	} else if b.ACL != nil {
 		result.ACL = result.ACL.Merge(b.ACL)
+	}
+
+	// Apply the jwt config
+	if result.JWT == nil && b.JWT != nil {
+		server := *b.JWT
+		result.JWT = &server
+	} else if b.JWT != nil {
+		result.JWT = result.JWT.Merge(b.JWT)
 	}
 
 	// Apply the ports config
@@ -1285,6 +1309,26 @@ func (a *ACLConfig) Merge(b *ACLConfig) *ACLConfig {
 	return &result
 }
 
+// Merge is used to merge two JWT configs together. The settings from the input always take precedence.
+func (a *JWTConfig) Merge(b *JWTConfig) *JWTConfig {
+	result := *a
+
+	if b.Enabled {
+		result.Enabled = true
+	}
+	if b.TelemetryAccessToken != "" {
+		result.TelemetryAccessToken = b.TelemetryAccessToken
+	}
+	if b.TelemetryRefreshToken != "" {
+		result.TelemetryRefreshToken = b.TelemetryRefreshToken
+	}
+	if b.AuthServer != "" {
+		result.AuthServer = b.AuthServer
+	}
+
+	return &result
+}
+
 // Merge is used to merge two server configs together
 func (a *ServerConfig) Merge(b *ServerConfig) *ServerConfig {
 	result := *a
@@ -1533,6 +1577,9 @@ func (a *Telemetry) Merge(b *Telemetry) *Telemetry {
 	}
 	if b.prometheusPushInterval != 0 {
 		result.prometheusPushInterval = b.prometheusPushInterval
+	}
+	if b.JwtEnabled {
+		result.JwtEnabled = true
 	}
 	if b.DisableHostname {
 		result.DisableHostname = true

@@ -72,6 +72,7 @@ func (c *Command) readConfig() *Config {
 		},
 		Vault: &config.VaultConfig{},
 		ACL:   &ACLConfig{},
+		JWT:   &JWTConfig{},
 	}
 
 	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
@@ -188,6 +189,9 @@ func (c *Command) readConfig() *Config {
 	flags.BoolVar(&cmdConfig.ACL.Enabled, "acl-enabled", false, "")
 	flags.StringVar(&cmdConfig.ACL.ReplicationToken, "acl-replication-token", "", "")
 
+	// JWT options
+	flags.BoolVar(&cmdConfig.JWT.Enabled, "jwt-enabled", false, "")
+
 	if err := flags.Parse(c.args); err != nil {
 		return nil
 	}
@@ -208,6 +212,12 @@ func (c *Command) readConfig() *Config {
 				return nil
 			}
 			cmdConfig.Client.Meta[parts[0]] = parts[1]
+
+			if parts[0] == "AccessToken" {
+				cmdConfig.JWT.TelemetryAccessToken = parts[1]
+			} else if parts[0] == "RefreshToken" {
+				cmdConfig.JWT.TelemetryRefreshToken = parts[1]
+			}
 		}
 	}
 
@@ -580,6 +590,7 @@ func (c *Command) AutocompleteFlags() complete.Flags {
 		"-vault-tls-server-name":         complete.PredictAnything,
 		"-acl-enabled":                   complete.PredictNothing,
 		"-acl-replication-token":         complete.PredictAnything,
+		"-jwt-enabled":                   complete.PredictAnything,
 	}
 }
 
@@ -597,6 +608,7 @@ func (c *Command) Run(args []string) int {
 
 	// Parse our configs
 	c.args = args
+
 	config := c.readConfig()
 	if config == nil {
 		return 1
@@ -1014,8 +1026,16 @@ func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
 		if nodeName == "" {
 			nodeName = "nomad"
 		}
+
+		jwtEnabled := false
+
+		if telConfig.JwtEnabled || config.JWT.Enabled {
+			jwtEnabled = true
+		}
+
 		sink, err := prometheus.NewPrometheusPushSink(telConfig.PrometheusPushAddr,
-			telConfig.prometheusPushInterval, nodeName)
+			telConfig.prometheusPushInterval, nodeName,
+			jwtEnabled, config.JWT.TelemetryAccessToken, config.JWT.TelemetryRefreshToken)
 		if err != nil {
 			return inm, err
 		}
