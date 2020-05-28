@@ -41,9 +41,6 @@ type LogConfig struct {
 
 	// MaxFileSizeMB is the max log file size in MB allowed before rotation occures
 	MaxFileSizeMB int
-
-	// FileExtension is appended to the end of log files
-	FileExtension string
 }
 
 type LogMon interface {
@@ -147,7 +144,7 @@ func NewTaskLogger(cfg *LogConfig, logger hclog.Logger) (*TaskLogger, error) {
 
 	logFileSize := int64(cfg.MaxFileSizeMB * 1024 * 1024)
 	lro, err := logging.NewFileRotator(cfg.LogDir, cfg.StdoutLogFile,
-		cfg.MaxFiles, logFileSize, cfg.FileExtension, logger)
+		cfg.MaxFiles, logFileSize, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout logfile for %q: %v", cfg.StdoutLogFile, err)
 	}
@@ -160,7 +157,7 @@ func NewTaskLogger(cfg *LogConfig, logger hclog.Logger) (*TaskLogger, error) {
 	tl.lro = wrapperOut
 
 	lre, err := logging.NewFileRotator(cfg.LogDir, cfg.StderrLogFile,
-		cfg.MaxFiles, logFileSize, cfg.FileExtension, logger)
+		cfg.MaxFiles, logFileSize, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stderr logfile for %q: %v", cfg.StderrLogFile, err)
 	}

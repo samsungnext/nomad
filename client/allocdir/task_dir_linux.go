@@ -1,5 +1,3 @@
-// +build !android
-
 package allocdir
 
 import (

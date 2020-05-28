@@ -7,6 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	testing "github.com/mitchellh/go-testing-interface"
+	"github.com/pkg/errors"
+
 	"github.com/hashicorp/nomad/command/agent/consul"
 	"github.com/hashicorp/nomad/helper/freeport"
 	"github.com/hashicorp/nomad/helper/pluginutils/catalog"
@@ -15,8 +18,6 @@ import (
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/version"
-	testing "github.com/mitchellh/go-testing-interface"
-	"github.com/pkg/errors"
 )
 
 var (
@@ -44,6 +45,7 @@ func TestServer(t testing.T, cb func(*Config)) (*Server, func()) {
 	config.Logger = testlog.HCLogger(t)
 	config.Build = version.Version + "+unittest"
 	config.DevMode = true
+	config.BootstrapExpect = 1
 	nodeNum := atomic.AddUint32(&nodeNumber, 1)
 	config.NodeName = fmt.Sprintf("nomad-%03d", nodeNum)
 
@@ -84,9 +86,6 @@ func TestServer(t testing.T, cb func(*Config)) (*Server, func()) {
 	if cb != nil {
 		cb(config)
 	}
-
-	// Enable raft as leader if we have bootstrap on
-	config.RaftConfig.StartAsLeader = !config.DevDisableBootstrap
 
 	catalog := consul.NewMockCatalog(config.Logger)
 

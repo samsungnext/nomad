@@ -2,7 +2,9 @@ import { currentURL } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import { setupApplicationTest } from 'ember-qunit';
 import { setupMirage } from 'ember-cli-mirage/test-support';
+import pageSizeSelect from './behaviors/page-size-select';
 import JobsList from 'nomad-ui/tests/pages/jobs/list';
+import Layout from 'nomad-ui/tests/pages/layout';
 
 let managementToken, clientToken;
 
@@ -17,6 +19,7 @@ module('Acceptance | jobs list', function(hooks) {
     managementToken = server.create('token');
     clientToken = server.create('token');
 
+    window.localStorage.clear();
     window.localStorage.nomadTokenSecret = managementToken.secretId;
   });
 
@@ -337,6 +340,27 @@ module('Acceptance | jobs list', function(hooks) {
     await JobsList.visit({ type: JSON.stringify(['batch']) });
 
     assert.equal(JobsList.jobs.length, 1, 'Only one job shown due to query param');
+  });
+
+  test('the active namespace is carried over to the storage pages', async function(assert) {
+    server.createList('namespace', 2);
+
+    const namespace = server.db.namespaces[1];
+    await JobsList.visit({ namespace: namespace.id });
+
+    await Layout.gutter.visitStorage();
+
+    assert.equal(currentURL(), `/csi/volumes?namespace=${namespace.id}`);
+  });
+
+  pageSizeSelect({
+    resourceName: 'job',
+    pageObject: JobsList,
+    pageObjectList: JobsList.jobs,
+    async setup() {
+      server.createList('job', JobsList.pageSize, { shallow: true, createAllocations: false });
+      await JobsList.visit();
+    },
   });
 
   function testFacet(label, { facet, paramName, beforeEach, filter, expectedOptions }) {

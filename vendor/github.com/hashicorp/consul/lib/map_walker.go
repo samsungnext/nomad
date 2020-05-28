@@ -34,6 +34,7 @@ func MapWalk(input interface{}) (map[string]interface{}, error) {
 }
 
 var typMapIfaceIface = reflect.TypeOf(map[interface{}]interface{}{})
+var typByteSlice = reflect.TypeOf([]byte{})
 
 // mapWalker implements interfaces for the reflectwalk package
 // (github.com/mitchellh/reflectwalk) that can be used to automatically
@@ -95,8 +96,31 @@ func (w *mapWalker) Map(m reflect.Value) error {
 func (w *mapWalker) MapElem(m, k, v reflect.Value) error {
 	w.csData = k
 	w.csKey = append(w.csKey, k)
-
 	w.lastValue = v
+
+	// We're looking specifically for map[interface{}]interface{}, but the
+	// values in a map could be wrapped up in interface{} so we need to unwrap
+	// that first. Therefore, we do three checks: 1.) is it valid? so we
+	// don't panic, 2.) is it an interface{}? so we can unwrap it and 3.)
+	// after unwrapping the interface do we have the map we expect?
+	if !v.IsValid() {
+		return nil
+	}
+
+	if v.Kind() != reflect.Interface {
+		return nil
+	}
+
+	if inner := v.Elem(); inner.Type() == typMapIfaceIface {
+		// map[interface{}]interface{}, attempt to weakly decode into string keys
+		var target map[string]interface{}
+		if err := mapstructure.WeakDecode(v.Interface(), &target); err != nil {
+			return err
+		}
+
+		m.SetMapIndex(k, reflect.ValueOf(target))
+	}
+
 	return nil
 }
 
@@ -104,7 +128,7 @@ func (w *mapWalker) Slice(v reflect.Value) error {
 	// If we find a []byte slice, it is an HCL-string converted to []byte.
 	// Convert it back to a Go string and replace the value so that JSON
 	// doesn't base64-encode it.
-	if v.Type() == reflect.TypeOf([]byte{}) {
+	if v.Type() == typByteSlice {
 		resultVal := reflect.ValueOf(string(v.Interface().([]byte)))
 		switch w.lastLoc {
 		case reflectwalk.MapKey:
@@ -162,6 +186,8 @@ func (w *mapWalker) SliceElem(i int, elem reflect.Value) error {
 		}
 
 		elem.Set(reflect.ValueOf(target))
+	} else if inner := elem.Elem(); inner.Type() == typByteSlice {
+		elem.Set(reflect.ValueOf(string(inner.Interface().([]byte))))
 	}
 
 	return nil

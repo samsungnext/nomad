@@ -10,11 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
+	"github.com/hashicorp/go-msgpack/codec"
 	"github.com/hashicorp/nomad/acl"
 	"github.com/hashicorp/nomad/client/allocdir"
 	sframer "github.com/hashicorp/nomad/client/lib/streamframer"
@@ -22,7 +24,6 @@ import (
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hpcloud/tail/watch"
-	"github.com/ugorji/go/codec"
 )
 
 var (
@@ -849,9 +850,9 @@ func logIndexes(entries []*cstructs.AllocFileInfo, task, logType string) (indexT
 			continue
 		}
 
-		// Get log index from file name, ignore file extension
-		var idx int = -1
-		if n, err := fmt.Sscanf(idxStr, "%d", &idx); err != nil || n == 0 {
+		// Convert to an int
+		idx, err := strconv.Atoi(idxStr)
+		if err != nil {
 			return nil, fmt.Errorf("failed to convert %q to a log index: %v", idxStr, err)
 		}
 

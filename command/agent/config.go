@@ -169,6 +169,9 @@ type Config struct {
 	// Limits contains the configuration for timeouts.
 	Limits config.Limits `hcl:"limits"`
 
+	// Audit contains the configuration for audit logging.
+	Audit *config.AuditConfig `hcl:"audit"`
+
 	// ExtraKeysHCL is used by hcl to surface unexpected keys
 	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
 }
@@ -189,9 +192,6 @@ type ClientConfig struct {
 
 	// NodeClass is used to group the node by class
 	NodeClass string `hcl:"node_class"`
-
-	// The SecretID of an ACL token to use to authenticate RPC requests
-	Token string `mapstructure:"token"`
 
 	// Options is used for configuration of nomad internals,
 	// like fingerprinters and drivers. The format is:
@@ -273,9 +273,6 @@ type ClientConfig struct {
 	// available to jobs running on this node.
 	HostVolumes []*structs.ClientHostVolumeConfig `hcl:"host_volume"`
 
-	// ExtraKeysHCL is used by hcl to surface unexpected keys
-	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
-
 	// CNIPath is the path to search for CNI plugins, multiple paths can be
 	// specified colon delimited
 	CNIPath string `hcl:"cni_path"`
@@ -288,6 +285,9 @@ type ClientConfig struct {
 	// creating allocations with bridge networking mode. This range is local to
 	// the host
 	BridgeNetworkSubnet string `hcl:"bridge_network_subnet"`
+
+	// ExtraKeysHCL is used by hcl to surface unexpected keys
+	ExtraKeysHCL []string `hcl:",unusedKeys" json:"-"`
 }
 
 // ClientTemplateConfig is configuration on the client specific to template
@@ -308,12 +308,6 @@ type ClientTemplateConfig struct {
 type ACLConfig struct {
 	// Enabled controls if we are enforce and manage ACLs
 	Enabled bool `hcl:"enabled"`
-
-	// Enabled controls if we are enforce ACL on nodes
-	EnforceNode bool `hcl:"enforce_node"`
-
-	// Node HCL token
-	Token string `hcl:"token" json:"-"`
 
 	// TokenTTL controls how long we cache ACL tokens. This controls
 	// how stale they can be when we are enforcing policies. Defaults
@@ -394,6 +388,16 @@ type ServerConfig struct {
 	// collected by GC.  Age is not the only requirement for a deployment to be
 	// GCed but the threshold can be used to filter by age.
 	DeploymentGCThreshold string `hcl:"deployment_gc_threshold"`
+
+	// CSIVolumeClaimGCThreshold controls how "old" a CSI volume must be to
+	// have its claims collected by GC.	Age is not the only requirement for
+	// a volume to be GCed but the threshold can be used to filter by age.
+	CSIVolumeClaimGCThreshold string `hcl:"csi_volume_claim_gc_threshold"`
+
+	// CSIPluginGCThreshold controls how "old" a CSI plugin must be to be
+	// collected by GC. Age is not the only requirement for a plugin to be
+	// GCed but the threshold can be used to filter by age.
+	CSIPluginGCThreshold string `hcl:"csi_plugin_gc_threshold"`
 
 	// HeartbeatGrace is the grace period beyond the TTL to account for network,
 	// processing delays and clock skew before marking a node as "down".
@@ -531,9 +535,6 @@ type Telemetry struct {
 	DataDogAddr              string        `hcl:"datadog_address"`
 	DataDogTags              []string      `hcl:"datadog_tags"`
 	PrometheusMetrics        bool          `hcl:"prometheus_metrics"`
-	PrometheusPushAddr       string        `hcl:"prometheus_push_address"`
-	PrometheusPushInterval   string        `hcl:"prometheus_push_interval"`
-	prometheusPushInterval   time.Duration `hcl:"-"`
 	DisableHostname          bool          `hcl:"disable_hostname"`
 	UseNodeName              bool          `hcl:"use_node_name"`
 	CollectionInterval       string        `hcl:"collection_interval"`
@@ -752,6 +753,11 @@ func newDevModeConfig(devMode, connectMode bool) (*devModeConfig, error) {
 }
 
 func (mode *devModeConfig) networkConfig() error {
+	if runtime.GOOS == "windows" {
+		mode.bindAddr = "127.0.0.1"
+		mode.iface = "Loopback Pseudo-Interface 1"
+		return nil
+	}
 	if runtime.GOOS == "darwin" {
 		mode.bindAddr = "127.0.0.1"
 		mode.iface = "lo0"
@@ -790,7 +796,8 @@ func DevConfig(mode *devModeConfig) *Config {
 	conf.LogLevel = "DEBUG"
 	conf.Client.Enabled = true
 	conf.Server.Enabled = true
-	conf.DevMode = mode != nil
+	conf.DevMode = true
+	conf.Server.BootstrapExpect = 1
 	conf.EnableDebug = true
 	conf.DisableAnonymousSignature = true
 	conf.Consul.AutoAdvertise = helper.BoolToPtr(true)
@@ -808,8 +815,6 @@ func DevConfig(mode *devModeConfig) *Config {
 		DisableSandbox:    false,
 	}
 	conf.Telemetry.PrometheusMetrics = true
-	conf.Telemetry.PrometheusPushAddr = ""
-	conf.Telemetry.PrometheusPushInterval = "5s"
 	conf.Telemetry.PublishAllocationMetrics = true
 	conf.Telemetry.PublishNodeMetrics = true
 
@@ -865,15 +870,12 @@ func DefaultConfig() *Config {
 			},
 		},
 		ACL: &ACLConfig{
-			Enabled:     false,
-			EnforceNode: false,
-			TokenTTL:    30 * time.Second,
-			PolicyTTL:   30 * time.Second,
+			Enabled:   false,
+			TokenTTL:  30 * time.Second,
+			PolicyTTL: 30 * time.Second,
 		},
 		SyslogFacility: "LOCAL0",
 		Telemetry: &Telemetry{
-			PrometheusPushInterval: "10s",
-			prometheusPushInterval: 10 * time.Second,
 			CollectionInterval: "1s",
 			collectionInterval: 1 * time.Second,
 		},
@@ -881,6 +883,7 @@ func DefaultConfig() *Config {
 		Sentinel:           &config.SentinelConfig{},
 		Version:            version.GetVersion(),
 		Autopilot:          config.DefaultAutopilotConfig(),
+		Audit:              &config.AuditConfig{},
 		DisableUpdateCheck: helper.BoolToPtr(false),
 		Limits:             config.DefaultLimits(),
 	}
@@ -1010,6 +1013,14 @@ func (c *Config) Merge(b *Config) *Config {
 		result.ACL = &server
 	} else if b.ACL != nil {
 		result.ACL = result.ACL.Merge(b.ACL)
+	}
+
+	// Apply the Audit config
+	if result.Audit == nil && b.Audit != nil {
+		audit := *b.Audit
+		result.Audit = &audit
+	} else if b.ACL != nil {
+		result.Audit = result.Audit.Merge(b.Audit)
 	}
 
 	// Apply the ports config
@@ -1264,9 +1275,6 @@ func (a *ACLConfig) Merge(b *ACLConfig) *ACLConfig {
 	if b.Enabled {
 		result.Enabled = true
 	}
-	if b.EnforceNode {
-		result.EnforceNode = true
-	}
 	if b.TokenTTL != 0 {
 		result.TokenTTL = b.TokenTTL
 	}
@@ -1324,6 +1332,12 @@ func (a *ServerConfig) Merge(b *ServerConfig) *ServerConfig {
 	}
 	if b.DeploymentGCThreshold != "" {
 		result.DeploymentGCThreshold = b.DeploymentGCThreshold
+	}
+	if b.CSIVolumeClaimGCThreshold != "" {
+		result.CSIVolumeClaimGCThreshold = b.CSIVolumeClaimGCThreshold
+	}
+	if b.CSIPluginGCThreshold != "" {
+		result.CSIPluginGCThreshold = b.CSIPluginGCThreshold
 	}
 	if b.HeartbeatGrace != 0 {
 		result.HeartbeatGrace = b.HeartbeatGrace
@@ -1404,9 +1418,6 @@ func (a *ClientConfig) Merge(b *ClientConfig) *ClientConfig {
 	}
 	if b.NodeClass != "" {
 		result.NodeClass = b.NodeClass
-	}
-	if b.Token != "" {
-		result.Token = b.Token
 	}
 	if b.NetworkInterface != "" {
 		result.NetworkInterface = b.NetworkInterface
@@ -1503,6 +1514,16 @@ func (a *ClientConfig) Merge(b *ClientConfig) *ClientConfig {
 		result.HostVolumes = structs.HostVolumeSliceMerge(a.HostVolumes, b.HostVolumes)
 	}
 
+	if b.CNIPath != "" {
+		result.CNIPath = b.CNIPath
+	}
+	if b.BridgeNetworkName != "" {
+		result.BridgeNetworkName = b.BridgeNetworkName
+	}
+	if b.BridgeNetworkSubnet != "" {
+		result.BridgeNetworkSubnet = b.BridgeNetworkSubnet
+	}
+
 	return &result
 }
 
@@ -1524,15 +1545,6 @@ func (a *Telemetry) Merge(b *Telemetry) *Telemetry {
 	}
 	if b.PrometheusMetrics {
 		result.PrometheusMetrics = b.PrometheusMetrics
-	}
-	if b.PrometheusPushAddr != "" {
-		result.PrometheusPushAddr = b.PrometheusPushAddr
-	}
-	if b.PrometheusPushInterval != "" {
-		result.PrometheusPushInterval = b.PrometheusPushInterval
-	}
-	if b.prometheusPushInterval != 0 {
-		result.prometheusPushInterval = b.prometheusPushInterval
 	}
 	if b.DisableHostname {
 		result.DisableHostname = true

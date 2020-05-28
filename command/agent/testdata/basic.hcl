@@ -95,49 +95,84 @@ client {
   host_volume "tmp" {
     path = "/tmp"
   }
+
+  cni_path              = "/tmp/cni_path"
+  bridge_network_name   = "custom_bridge_name"
+  bridge_network_subnet = "custom_bridge_subnet"
 }
 
 server {
-  enabled                   = true
-  authoritative_region      = "foobar"
-  bootstrap_expect          = 5
-  data_dir                  = "/tmp/data"
-  protocol_version          = 3
-  raft_protocol             = 3
-  num_schedulers            = 2
-  enabled_schedulers        = ["test"]
-  node_gc_threshold         = "12h"
-  job_gc_interval           = "3m"
-  job_gc_threshold          = "12h"
-  eval_gc_threshold         = "12h"
-  deployment_gc_threshold   = "12h"
-  heartbeat_grace           = "30s"
-  min_heartbeat_ttl         = "33s"
-  max_heartbeats_per_second = 11.0
-  retry_join                = ["1.1.1.1", "2.2.2.2"]
-  start_join                = ["1.1.1.1", "2.2.2.2"]
-  retry_max                 = 3
-  retry_interval            = "15s"
-  rejoin_after_leave        = true
-  non_voting_server         = true
-  redundancy_zone           = "foo"
-  upgrade_version           = "0.8.0"
-  encrypt                   = "abc"
+  enabled                       = true
+  authoritative_region          = "foobar"
+  bootstrap_expect              = 5
+  data_dir                      = "/tmp/data"
+  protocol_version              = 3
+  raft_protocol                 = 3
+  num_schedulers                = 2
+  enabled_schedulers            = ["test"]
+  node_gc_threshold             = "12h"
+  job_gc_interval               = "3m"
+  job_gc_threshold              = "12h"
+  eval_gc_threshold             = "12h"
+  deployment_gc_threshold       = "12h"
+  csi_volume_claim_gc_threshold = "12h"
+  csi_plugin_gc_threshold       = "12h"
+  heartbeat_grace               = "30s"
+  min_heartbeat_ttl             = "33s"
+  max_heartbeats_per_second     = 11.0
+  retry_join                    = ["1.1.1.1", "2.2.2.2"]
+  start_join                    = ["1.1.1.1", "2.2.2.2"]
+  retry_max                     = 3
+  retry_interval                = "15s"
+  rejoin_after_leave            = true
+  non_voting_server             = true
+  redundancy_zone               = "foo"
+  upgrade_version               = "0.8.0"
+  encrypt                       = "abc"
 
   server_join {
     retry_join     = ["1.1.1.1", "2.2.2.2"]
     retry_max      = 3
     retry_interval = "15s"
   }
+
+  default_scheduler_config {
+    scheduler_algorithm = "spread"
+
+    preemption_config {
+      batch_scheduler_enabled   = true
+      system_scheduler_enabled  = true
+      service_scheduler_enabled = true
+    }
+  }
 }
 
 acl {
   enabled           = true
-	enforce_node      = true
-	token             = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
   token_ttl         = "60s"
   policy_ttl        = "60s"
   replication_token = "foobar"
+}
+
+audit {
+  enabled = true
+
+  sink "file" {
+    type               = "file"
+    delivery_guarantee = "enforced"
+    format             = "json"
+    path               = "/opt/nomad/audit.log"
+    rotate_bytes       = 100
+    rotate_duration    = "24h"
+    rotate_max_files   = 10
+  }
+
+  filter "default" {
+    type       = "HTTPEvent"
+    endpoints  = ["/v1/metrics"]
+    stages     = ["*"]
+    operations = ["*"]
+  }
 }
 
 telemetry {
@@ -236,6 +271,7 @@ autopilot {
   disable_upgrade_migration = true
   last_contact_threshold    = "12705s"
   max_trailing_logs         = 17849
+  min_quorum                = 3
   enable_redundancy_zones   = true
   server_stabilization_time = "23057s"
   enable_custom_upgrades    = true

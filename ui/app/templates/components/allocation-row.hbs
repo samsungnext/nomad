@@ -36,10 +36,13 @@
 <td data-test-client-status class="is-one-line">
   <span class="color-swatch {{allocation.clientStatus}}" /> {{allocation.clientStatus}}
 </td>
+{{#if (eq context "volume")}}
+  <td data-test-client>{{#link-to "clients.client" allocation.node}}{{allocation.node.shortId}}{{/link-to}}</td>
+{{/if}}
 {{#if (or (eq context "taskGroup") (eq context "job"))}}
   <td data-test-job-version>{{allocation.jobVersion}}</td>
   <td data-test-client>{{#link-to "clients.client" allocation.node}}{{allocation.node.shortId}}{{/link-to}}</td>
-{{else if (eq context "node")}}
+{{else if (or (eq context "node") (eq context "volume"))}}
   <td>
     {{#if (or allocation.job.isPending allocation.job.isReloading)}}
       ...
@@ -50,43 +53,22 @@
   </td>
   <td data-test-job-version class="is-1">{{allocation.jobVersion}}</td>
 {{/if}}
+{{#if (not (eq context "volume"))}}
+  <td data-test-volume>{{if allocation.taskGroup.volumes.length "Yes"}}</td>
+{{/if}}
 <td data-test-cpu class="is-1 has-text-centered">
-  {{#if allocation.isRunning}}
-    {{#if (and (not cpu) fetchStats.isRunning)}}
-      ...
-    {{else if statsError}}
-      <span class="tooltip text-center" role="tooltip" aria-label="Couldn't collect stats">
-        {{x-icon "warning" class="is-warning"}}
-      </span>
-    {{else}}
-      <div class="inline-chart is-small tooltip" role="tooltip" aria-label="{{cpu.used}} / {{stats.reservedCPU}} MHz">
-        <progress
-          class="progress is-info is-small"
-          value="{{cpu.percent}}"
-          max="1">
-          {{cpu.percent}}
-        </progress>
-      </div>
-    {{/if}}
-  {{/if}}
+  {{allocation-stat
+    metric="cpu"
+    allocation=allocation
+    statsTracker=stats
+    isLoading=fetchStats.isRunning
+    error=statsError}}
 </td>
 <td data-test-mem class="is-1 has-text-centered">
-  {{#if allocation.isRunning}}
-    {{#if (and (not memory) fetchStats.isRunning)}}
-      ...
-    {{else if statsError}}
-      <span class="tooltip is-small text-center" role="tooltip" aria-label="Couldn't collect stats">
-        {{x-icon "warning" class="is-warning"}}
-      </span>
-    {{else}}
-      <div class="inline-chart tooltip" role="tooltip" aria-label="{{format-bytes memory.used}} / {{stats.reservedMemory}} MiB">
-        <progress
-          class="progress is-danger is-small"
-          value="{{memory.percent}}"
-          max="1">
-          {{memory.percent}}
-        </progress>
-      </div>
-    {{/if}}
-  {{/if}}
+  {{allocation-stat
+    metric="memory"
+    allocation=allocation
+    statsTracker=stats
+    isLoading=fetchStats.isRunning
+    error=statsError}}
 </td>

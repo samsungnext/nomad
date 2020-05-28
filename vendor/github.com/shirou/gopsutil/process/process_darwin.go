@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -89,8 +90,24 @@ func (p *Process) NameWithContext(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	name := common.IntToString(k.Proc.P_comm[:])
 
-	return common.IntToString(k.Proc.P_comm[:]), nil
+	if len(name) >= 15 {
+		cmdlineSlice, err := p.CmdlineSliceWithContext(ctx)
+		if err != nil {
+			return "", err
+		}
+		if len(cmdlineSlice) > 0 {
+			extendedName := filepath.Base(cmdlineSlice[0])
+			if strings.HasPrefix(extendedName, p.name) {
+				name = extendedName
+			} else {
+				name = cmdlineSlice[0]
+			}
+		}
+	}
+
+	return name, nil
 }
 func (p *Process) Tgid() (int32, error) {
 	return 0, common.ErrNotImplementedError
@@ -129,11 +146,8 @@ func (p *Process) CmdlineSliceWithContext(ctx context.Context) ([]string, error)
 	}
 	return r[0], err
 }
-func (p *Process) CreateTime() (int64, error) {
-	return p.CreateTimeWithContext(context.Background())
-}
 
-func (p *Process) CreateTimeWithContext(ctx context.Context) (int64, error) {
+func (p *Process) createTimeWithContext(ctx context.Context) (int64, error) {
 	r, err := callPsWithContext(ctx, "etime", p.Pid, false)
 	if err != nil {
 		return 0, err
@@ -202,7 +216,7 @@ func (p *Process) StatusWithContext(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	return r[0][0], err
+	return r[0][0][0:1], err
 }
 
 func (p *Process) Foreground() (bool, error) {
@@ -527,13 +541,6 @@ func (p *Process) NetIOCountersWithContext(ctx context.Context, pernic bool) ([]
 	return nil, common.ErrNotImplementedError
 }
 
-func (p *Process) IsRunning() (bool, error) {
-	return p.IsRunningWithContext(context.Background())
-}
-
-func (p *Process) IsRunningWithContext(ctx context.Context) (bool, error) {
-	return true, common.ErrNotImplementedError
-}
 func (p *Process) MemoryMaps(grouped bool) (*[]MemoryMapsStat, error) {
 	return p.MemoryMapsWithContext(context.Background(), grouped)
 }

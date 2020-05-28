@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
 	vapi "github.com/hashicorp/vault/api"
+	"github.com/kr/pretty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -84,71 +85,6 @@ func TestClientEndpoint_Register(t *testing.T) {
 	})
 }
 
-func TestClientEndpoint_Register_ACL(t *testing.T) {
-	t.Parallel()
-	s1, root := TestACLServer(t, nil)
-	defer s1.Shutdown()
-	codec := rpcClient(t, s1)
-	testutil.WaitForLeader(t, s1.RPC)
-
-	// Create the node
-	node := mock.Node()
-	node1 := mock.Node()
-	state := s1.fsm.State()
-	if err := state.UpsertNode(1, node); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if err := state.UpsertNode(2, node1); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	// Create the policy and tokens
-	validToken := mock.CreatePolicyAndToken(t, state, 1001, "test-valid", mock.NodePolicy(acl.PolicyWrite))
-	invalidToken := mock.CreatePolicyAndToken(t, state, 1003, "test-invalid", mock.NodePolicy(acl.PolicyRead))
-
-	// Register without any token and expect it to fail
-	reg := &structs.NodeRegisterRequest{
-		Node:         node,
-		WriteRequest: structs.WriteRequest{Region: "global"},
-	}
-	var resp structs.GenericResponse
-	if err := msgpackrpc.CallWithCodec(codec, "Node.Register", reg, &resp); err != nil {
-		t.Fatalf("node register succeeded")
-	}
-
-	// Register with a valid token
-	reg.AuthToken = validToken.SecretID
-	if err := msgpackrpc.CallWithCodec(codec, "Node.Register", reg, &resp); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	// Check for the node in the FSM
-	ws := memdb.NewWatchSet()
-	out, err := state.NodeByID(ws, node.ID)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if out == nil {
-		t.Fatalf("expected node")
-	}
-
-	// Register with an invalid token.
-	reg1 := &structs.NodeRegisterRequest{
-		Node:         node1,
-		WriteRequest: structs.WriteRequest{Region: "global"},
-	}
-	reg1.AuthToken = invalidToken.SecretID
-	if err := msgpackrpc.CallWithCodec(codec, "Node.Register", reg1, &resp); err != nil {
-		t.Fatalf("rpc should not have succeeded")
-	}
-
-	// Try with a root token
-	reg1.AuthToken = root.SecretID
-	if err := msgpackrpc.CallWithCodec(codec, "Node.Register", reg1, &resp); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-}
-
 // This test asserts that we only track node connections if they are not from
 // forwarded RPCs. This is essential otherwise we will think a Yamux session to
 // a Nomad server is actually the session to the node.
@@ -162,7 +98,7 @@ func TestClientEndpoint_Register_NodeConn_Forwarded(t *testing.T) {
 
 	defer cleanupS1()
 	s2, cleanupS2 := TestServer(t, func(c *Config) {
-		c.DevDisableBootstrap = true
+		c.BootstrapExpect = 2
 	})
 	defer cleanupS2()
 	TestJoin(t, s1, s2)
@@ -819,16 +755,18 @@ func TestClientEndpoint_UpdateStatus_GetEvals(t *testing.T) {
 func TestClientEndpoint_UpdateStatus_HeartbeatOnly(t *testing.T) {
 	t.Parallel()
 
-	s1, cleanupS1 := TestServer(t, nil)
+	s1, cleanupS1 := TestServer(t, func(c *Config) {
+		c.BootstrapExpect = 3
+	})
 	defer cleanupS1()
 
 	s2, cleanupS2 := TestServer(t, func(c *Config) {
-		c.DevDisableBootstrap = true
+		c.BootstrapExpect = 3
 	})
 	defer cleanupS2()
 
 	s3, cleanupS3 := TestServer(t, func(c *Config) {
-		c.DevDisableBootstrap = true
+		c.BootstrapExpect = 3
 	})
 	defer cleanupS3()
 	servers := []*Server{s1, s2, s3}
@@ -2204,7 +2142,7 @@ func TestClientEndpoint_UpdateAlloc(t *testing.T) {
 	start := time.Now()
 	err = msgpackrpc.CallWithCodec(codec, "Node.UpdateAlloc", update, &resp2)
 	require.Nil(err)
-	require.NotEqual(0, resp2.Index)
+	require.NotEqual(uint64(0), resp2.Index)
 
 	if diff := time.Since(start); diff < batchUpdateInterval {
 		t.Fatalf("too fast: %v", diff)
@@ -2375,6 +2313,113 @@ func TestClientEndpoint_UpdateAlloc_Vault(t *testing.T) {
 	}
 }
 
+func TestClientEndpoint_UpdateAlloc_UnclaimVolumes(t *testing.T) {
+	t.Parallel()
+	srv, shutdown := TestServer(t, func(c *Config) { c.NumSchedulers = 0 })
+	defer shutdown()
+	testutil.WaitForLeader(t, srv.RPC)
+
+	codec := rpcClient(t, srv)
+	state := srv.fsm.State()
+	ws := memdb.NewWatchSet()
+
+	// Create a client node, plugin, and volume
+	node := mock.Node()
+	node.Attributes["nomad.version"] = "0.11.0" // client RPCs not supported on early version
+	node.CSINodePlugins = map[string]*structs.CSIInfo{
+		"csi-plugin-example": {PluginID: "csi-plugin-example",
+			Healthy:        true,
+			NodeInfo:       &structs.CSINodeInfo{},
+			ControllerInfo: &structs.CSIControllerInfo{},
+		},
+	}
+	err := state.UpsertNode(99, node)
+	require.NoError(t, err)
+	volId0 := uuid.Generate()
+	ns := structs.DefaultNamespace
+	vols := []*structs.CSIVolume{{
+		ID:             volId0,
+		Namespace:      ns,
+		PluginID:       "csi-plugin-example",
+		AccessMode:     structs.CSIVolumeAccessModeMultiNodeSingleWriter,
+		AttachmentMode: structs.CSIVolumeAttachmentModeFilesystem,
+	}}
+	err = state.CSIVolumeRegister(100, vols)
+	require.NoError(t, err)
+	vol, err := state.CSIVolumeByID(ws, ns, volId0)
+	require.NoError(t, err)
+	require.Len(t, vol.ReadAllocs, 0)
+	require.Len(t, vol.WriteAllocs, 0)
+
+	// Create a job with 2 allocations
+	job := mock.Job()
+	job.TaskGroups[0].Volumes = map[string]*structs.VolumeRequest{
+		"_": {
+			Name:     "someVolume",
+			Type:     structs.VolumeTypeCSI,
+			Source:   volId0,
+			ReadOnly: false,
+		},
+	}
+	err = state.UpsertJob(101, job)
+	require.NoError(t, err)
+
+	alloc1 := mock.Alloc()
+	alloc1.JobID = job.ID
+	alloc1.NodeID = node.ID
+	err = state.UpsertJobSummary(102, mock.JobSummary(alloc1.JobID))
+	require.NoError(t, err)
+	alloc1.TaskGroup = job.TaskGroups[0].Name
+
+	alloc2 := mock.Alloc()
+	alloc2.JobID = job.ID
+	alloc2.NodeID = node.ID
+	err = state.UpsertJobSummary(103, mock.JobSummary(alloc2.JobID))
+	require.NoError(t, err)
+	alloc2.TaskGroup = job.TaskGroups[0].Name
+
+	err = state.UpsertAllocs(104, []*structs.Allocation{alloc1, alloc2})
+	require.NoError(t, err)
+
+	// Claim the volumes and verify the claims were set
+	err = state.CSIVolumeClaim(105, ns, volId0, &structs.CSIVolumeClaim{
+		AllocationID: alloc1.ID,
+		NodeID:       alloc1.NodeID,
+		Mode:         structs.CSIVolumeClaimWrite,
+	})
+	require.NoError(t, err)
+	err = state.CSIVolumeClaim(106, ns, volId0, &structs.CSIVolumeClaim{
+		AllocationID: alloc2.ID,
+		NodeID:       alloc2.NodeID,
+		Mode:         structs.CSIVolumeClaimRead,
+	})
+	require.NoError(t, err)
+	vol, err = state.CSIVolumeByID(ws, ns, volId0)
+	require.NoError(t, err)
+	require.Len(t, vol.ReadAllocs, 1)
+	require.Len(t, vol.WriteAllocs, 1)
+
+	// Update the 1st alloc as terminal/failed
+	alloc1.ClientStatus = structs.AllocClientStatusFailed
+	err = msgpackrpc.CallWithCodec(codec, "Node.UpdateAlloc",
+		&structs.AllocUpdateRequest{
+			Alloc:        []*structs.Allocation{alloc1},
+			WriteRequest: structs.WriteRequest{Region: "global"},
+		}, &structs.NodeAllocsResponse{})
+	require.NoError(t, err)
+
+	// Lookup the alloc and verify status was updated
+	out, err := state.AllocByID(ws, alloc1.ID)
+	require.NoError(t, err)
+	require.Equal(t, structs.AllocClientStatusFailed, out.ClientStatus)
+
+	// Verify the eval for the claim GC was emitted
+	// Lookup the evaluations
+	eval, err := state.EvalsByJob(ws, job.Namespace, structs.CoreJobCSIVolumeClaimGC+":"+volId0)
+	require.NotNil(t, eval)
+	require.Nil(t, err)
+}
+
 func TestClientEndpoint_CreateNodeEvals(t *testing.T) {
 	t.Parallel()
 
@@ -2440,33 +2485,16 @@ func TestClientEndpoint_CreateNodeEvals(t *testing.T) {
 			expJobID = job.ID
 		}
 
-		if eval.CreateIndex != index {
-			t.Fatalf("CreateIndex mis-match on type %v: %#v", schedType, eval)
-		}
-		if eval.TriggeredBy != structs.EvalTriggerNodeUpdate {
-			t.Fatalf("TriggeredBy incorrect on type %v: %#v", schedType, eval)
-		}
-		if eval.NodeID != alloc.NodeID {
-			t.Fatalf("NodeID incorrect on type %v: %#v", schedType, eval)
-		}
-		if eval.NodeModifyIndex != 1 {
-			t.Fatalf("NodeModifyIndex incorrect on type %v: %#v", schedType, eval)
-		}
-		if eval.Status != structs.EvalStatusPending {
-			t.Fatalf("Status incorrect on type %v: %#v", schedType, eval)
-		}
-		if eval.Priority != expPriority {
-			t.Fatalf("Priority incorrect on type %v: %#v", schedType, eval)
-		}
-		if eval.JobID != expJobID {
-			t.Fatalf("JobID incorrect on type %v: %#v", schedType, eval)
-		}
-		if eval.CreateTime == 0 {
-			t.Fatalf("CreateTime is unset on type %v: %#v", schedType, eval)
-		}
-		if eval.ModifyTime == 0 {
-			t.Fatalf("ModifyTime is unset on type %v: %#v", schedType, eval)
-		}
+		t.Logf("checking eval: %v", pretty.Sprint(eval))
+		require.Equal(t, index, eval.CreateIndex)
+		require.Equal(t, structs.EvalTriggerNodeUpdate, eval.TriggeredBy)
+		require.Equal(t, alloc.NodeID, eval.NodeID)
+		require.Equal(t, uint64(1), eval.NodeModifyIndex)
+		require.Equal(t, structs.EvalStatusPending, eval.Status)
+		require.Equal(t, expPriority, eval.Priority)
+		require.Equal(t, expJobID, eval.JobID)
+		require.NotZero(t, eval.CreateTime)
+		require.NotZero(t, eval.ModifyTime)
 	}
 }
 
@@ -2627,6 +2655,13 @@ func TestClientEndpoint_ListNodes(t *testing.T) {
 
 	// Create the register request
 	node := mock.Node()
+	node.HostVolumes = map[string]*structs.ClientHostVolumeConfig{
+		"foo": {
+			Name:     "foo",
+			Path:     "/",
+			ReadOnly: true,
+		},
+	}
 	reg := &structs.NodeRegisterRequest{
 		Node:         node,
 		WriteRequest: structs.WriteRequest{Region: "global"},
@@ -2652,12 +2687,11 @@ func TestClientEndpoint_ListNodes(t *testing.T) {
 		t.Fatalf("Bad index: %d %d", resp2.Index, resp.Index)
 	}
 
-	if len(resp2.Nodes) != 1 {
-		t.Fatalf("bad: %#v", resp2.Nodes)
-	}
-	if resp2.Nodes[0].ID != node.ID {
-		t.Fatalf("bad: %#v", resp2.Nodes[0])
-	}
+	require.Len(t, resp2.Nodes, 1)
+	require.Equal(t, node.ID, resp2.Nodes[0].ID)
+
+	// #7344 - Assert HostVolumes are included in stub
+	require.Equal(t, node.HostVolumes, resp2.Nodes[0].HostVolumes)
 
 	// Lookup the node with prefix
 	get = &structs.NodeListRequest{
@@ -3298,7 +3332,7 @@ func TestClientEndpoint_EmitEvents(t *testing.T) {
 	var resp structs.GenericResponse
 	err = msgpackrpc.CallWithCodec(codec, "Node.EmitEvents", &req, &resp)
 	require.Nil(err)
-	require.NotEqual(0, resp.Index)
+	require.NotEqual(uint64(0), resp.Index)
 
 	// Check for the node in the FSM
 	ws := memdb.NewWatchSet()

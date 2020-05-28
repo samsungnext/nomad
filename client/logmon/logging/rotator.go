@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,13 +35,11 @@ const (
 
 // FileRotator writes bytes to a rotated set of files
 type FileRotator struct {
-	MaxFiles      int    // MaxFiles is the maximum number of rotated files allowed in a path
-	FileSize      int64  // FileSize is the size a rotated file is allowed to grow
-	FileExtension string // FileExtension is appened to the end of the rotated files
+	MaxFiles int   // MaxFiles is the maximum number of rotated files allowed in a path
+	FileSize int64 // FileSize is the size a rotated file is allowed to grow
 
 	path             string // path is the path on the file system where the rotated set of files are opened
 	baseFileName     string // baseFileName is the base file name of the rotated files
-	fileNameTemplate string // file name template
 	logFileIdx       int    // logFileIdx is the current index of the rotated files
 	oldestLogFileIdx int    // oldestLogFileIdx is the index of the oldest log file in a path
 
@@ -59,20 +59,14 @@ type FileRotator struct {
 
 // NewFileRotator returns a new file rotator
 func NewFileRotator(path string, baseFile string, maxFiles int,
-	fileSize int64, fileExtension string, logger hclog.Logger) (*FileRotator, error) {
+	fileSize int64, logger hclog.Logger) (*FileRotator, error) {
 	logger = logger.Named("rotator")
-	template := baseFile + ".%d"
-	if fileExtension != "" {
-		template += "." + fileExtension
-	}
 	rotator := &FileRotator{
-		MaxFiles:      maxFiles,
-		FileSize:      fileSize,
-		FileExtension: fileExtension,
+		MaxFiles: maxFiles,
+		FileSize: fileSize,
 
-		path:             path,
-		baseFileName:     baseFile,
-		fileNameTemplate: template,
+		path:         path,
+		baseFileName: baseFile,
 
 		flushTicker: time.NewTicker(bufferFlushDuration),
 		logger:      logger,
@@ -169,7 +163,7 @@ func (f *FileRotator) nextFile() error {
 	nextFileIdx := f.logFileIdx
 	for {
 		nextFileIdx += 1
-		logFileName := filepath.Join(f.path, fmt.Sprintf(f.fileNameTemplate, nextFileIdx))
+		logFileName := filepath.Join(f.path, fmt.Sprintf("%s.%d", f.baseFileName, nextFileIdx))
 		if fi, err := os.Stat(logFileName); err == nil {
 			if fi.IsDir() || fi.Size() >= f.FileSize {
 				continue
@@ -200,16 +194,20 @@ func (f *FileRotator) lastFile() error {
 		return err
 	}
 
+	prefix := fmt.Sprintf("%s.", f.baseFileName)
 	for _, fi := range finfos {
 		if fi.IsDir() {
 			continue
 		}
-		var idx int
-		if n, err := fmt.Sscanf(fi.Name(), f.fileNameTemplate, &idx); err != nil || n == 0 {
-			continue
-		}
-		if idx > f.logFileIdx {
-			f.logFileIdx = idx
+		if strings.HasPrefix(fi.Name(), prefix) {
+			fileIdx := strings.TrimPrefix(fi.Name(), prefix)
+			n, err := strconv.Atoi(fileIdx)
+			if err != nil {
+				continue
+			}
+			if n > f.logFileIdx {
+				f.logFileIdx = n
+			}
 		}
 	}
 	if err := f.createFile(); err != nil {
@@ -220,7 +218,7 @@ func (f *FileRotator) lastFile() error {
 
 // createFile opens a new or existing file for writing
 func (f *FileRotator) createFile() error {
-	logFileName := filepath.Join(f.path, fmt.Sprintf(f.fileNameTemplate, f.logFileIdx))
+	logFileName := filepath.Join(f.path, fmt.Sprintf("%s.%d", f.baseFileName, f.logFileIdx))
 	cFile, err := os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return err
@@ -278,14 +276,15 @@ func (f *FileRotator) purgeOldFiles() {
 			}
 			// Inserting all the rotated files in a slice
 			for _, fi := range files {
-				var idx int
-				if n, err := fmt.Sscanf(fi.Name(), f.fileNameTemplate, &idx); err != nil {
-					f.logger.Error("error extracting file index", "err", err)
-					continue
-				} else if n == 0 {
-					continue
+				if strings.HasPrefix(fi.Name(), f.baseFileName) {
+					fileIdx := strings.TrimPrefix(fi.Name(), fmt.Sprintf("%s.", f.baseFileName))
+					n, err := strconv.Atoi(fileIdx)
+					if err != nil {
+						f.logger.Error("error extracting file index", "err", err)
+						continue
+					}
+					fIndexes = append(fIndexes, n)
 				}
-				fIndexes = append(fIndexes, idx)
 			}
 
 			// Not continuing to delete files if the number of files is not more
@@ -299,7 +298,7 @@ func (f *FileRotator) purgeOldFiles() {
 			sort.Sort(sort.IntSlice(fIndexes))
 			toDelete := fIndexes[0 : len(fIndexes)-f.MaxFiles]
 			for _, fIndex := range toDelete {
-				fname := filepath.Join(f.path, fmt.Sprintf(f.fileNameTemplate, fIndex))
+				fname := filepath.Join(f.path, fmt.Sprintf("%s.%d", f.baseFileName, fIndex))
 				err := os.RemoveAll(fname)
 				if err != nil {
 					f.logger.Error("error removing file", "filename", fname, "err", err)

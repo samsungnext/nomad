@@ -134,7 +134,8 @@ func (s *GenericScheduler) Process(eval *structs.Evaluation) error {
 		structs.EvalTriggerRollingUpdate, structs.EvalTriggerQueuedAllocs,
 		structs.EvalTriggerPeriodicJob, structs.EvalTriggerMaxPlans,
 		structs.EvalTriggerDeploymentWatcher, structs.EvalTriggerRetryFailedAlloc,
-		structs.EvalTriggerFailedFollowUp, structs.EvalTriggerPreemption:
+		structs.EvalTriggerFailedFollowUp, structs.EvalTriggerPreemption,
+		structs.EvalTriggerScaling:
 	default:
 		desc := fmt.Sprintf("scheduler cannot handle '%s' evaluation reason",
 			eval.TriggeredBy)
@@ -258,8 +259,10 @@ func (s *GenericScheduler) process() (bool, error) {
 	// If there are failed allocations, we need to create a blocked evaluation
 	// to place the failed allocations when resources become available. If the
 	// current evaluation is already a blocked eval, we reuse it by submitting
-	// a new eval to the planner in createBlockedEval
-	if s.eval.Status != structs.EvalStatusBlocked && len(s.failedTGAllocs) != 0 && s.blocked == nil {
+	// a new eval to the planner in createBlockedEval. If the current eval is
+	// pending with WaitUntil set, it's delayed rather than blocked.
+	if s.eval.Status != structs.EvalStatusBlocked && len(s.failedTGAllocs) != 0 && s.blocked == nil &&
+		s.eval.WaitUntil.IsZero() {
 		if err := s.createBlockedEval(false); err != nil {
 			s.logger.Error("failed to make blocked eval", "error", err)
 			return false, err
@@ -337,7 +340,7 @@ func (s *GenericScheduler) computeJobAllocs() error {
 	}
 
 	// Update the allocations which are in pending/running state on tainted
-	// nodes to lost
+	// nodes to lost, but only if the scheduler has already marked them
 	updateNonTerminalAllocsToLost(s.plan, tainted, allocs)
 
 	reconciler := NewAllocReconciler(s.logger,
@@ -484,7 +487,8 @@ func (s *GenericScheduler) computePlacements(destructive, place []placementResul
 			// Set fields based on if we found an allocation option
 			if option != nil {
 				resources := &structs.AllocatedResources{
-					Tasks: option.TaskResources,
+					Tasks:          option.TaskResources,
+					TaskLifecycles: option.TaskLifecycles,
 					Shared: structs.AllocatedSharedResources{
 						DiskMB: int64(tg.EphemeralDisk.SizeMB),
 					},

@@ -58,6 +58,7 @@ pkg/darwin_amd64/nomad: $(SOURCE_FILES) ## Build Nomad for darwin/amd64
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@"
@@ -66,6 +67,7 @@ pkg/freebsd_amd64/nomad: $(SOURCE_FILES) ## Build Nomad for freebsd/amd64
 	@echo "==> Building $@..."
 	@CGO_ENABLED=1 GOOS=freebsd GOARCH=amd64 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@"
@@ -74,6 +76,7 @@ pkg/linux_386/nomad: $(SOURCE_FILES) ## Build Nomad for linux/386
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=1 GOOS=linux GOARCH=386 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@"
@@ -82,6 +85,7 @@ pkg/linux_amd64/nomad: $(SOURCE_FILES) ## Build Nomad for linux/amd64
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@"
@@ -90,6 +94,7 @@ pkg/linux_arm/nomad: $(SOURCE_FILES) ## Build Nomad for linux/arm
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=1 GOOS=linux GOARCH=arm CC=arm-linux-gnueabihf-gcc-5 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@"
@@ -98,6 +103,7 @@ pkg/linux_arm64/nomad: $(SOURCE_FILES) ## Build Nomad for linux/arm64
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc-5 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@"
@@ -111,6 +117,7 @@ pkg/windows_386/nomad: $(SOURCE_FILES) ## Build Nomad for windows/386
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=1 GOOS=windows GOARCH=386 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@.exe"
@@ -119,9 +126,28 @@ pkg/windows_amd64/nomad: $(SOURCE_FILES) ## Build Nomad for windows/amd64
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
 		go build \
+		-trimpath \
 		-ldflags $(GO_LDFLAGS) \
 		-tags "$(GO_TAGS)" \
 		-o "$@.exe"
+
+pkg/linux_ppc64le/nomad: $(SOURCE_FILES) ## Build Nomad for linux/arm64
+	@echo "==> Building $@ with tags $(GO_TAGS)..."
+	@CGO_ENABLED=1 GOOS=linux GOARCH=ppc64le \
+		go build \
+		-trimpath \
+		-ldflags $(GO_LDFLAGS) \
+		-tags "$(GO_TAGS)" \
+		-o "$@"
+
+pkg/linux_s390x/nomad: $(SOURCE_FILES) ## Build Nomad for linux/arm64
+	@echo "==> Building $@ with tags $(GO_TAGS)..."
+	@CGO_ENABLED=1 GOOS=linux GOARCH=s390x \
+		go build \
+		-trimpath \
+		-ldflags $(GO_LDFLAGS) \
+		-tags "$(GO_TAGS)" \
+		-o "$@"
 
 # Define package targets for each of the build targets we actually have on this system
 define makePackageTarget
@@ -141,21 +167,21 @@ bootstrap: deps lint-deps git-hooks # Install all dependencies
 .PHONY: deps
 deps:  ## Install build and development dependencies
 	@echo "==> Updating build dependencies..."
-	go get -u github.com/kardianos/govendor
-	go get -u github.com/hashicorp/go-bindata/go-bindata
-	go get -u github.com/elazarl/go-bindata-assetfs/go-bindata-assetfs
-	go get -u github.com/a8m/tree/cmd/tree
-	go get -u github.com/magiconair/vendorfmt/cmd/vendorfmt
-	go get -u gotest.tools/gotestsum
-	go get -u github.com/fatih/hclfmt
-	@bash -C "$(PROJECT_ROOT)/scripts/install-codecgen.sh"
-	@bash -C "$(PROJECT_ROOT)/scripts/install-protoc-gen-go.sh"
+	GO111MODULE=on go get -u github.com/kardianos/govendor
+	GO111MODULE=on go get -u github.com/hashicorp/go-bindata/go-bindata@master
+	GO111MODULE=on go get -u github.com/elazarl/go-bindata-assetfs/go-bindata-assetfs@master
+	GO111MODULE=on go get -u github.com/a8m/tree/cmd/tree
+	GO111MODULE=on go get -u github.com/magiconair/vendorfmt/cmd/vendorfmt
+	GO111MODULE=on go get -u gotest.tools/gotestsum
+	GO111MODULE=on go get -u github.com/fatih/hclfmt
+	GO111MODULE=on go get -u github.com/golang/protobuf/protoc-gen-go@v1.3.4
+	GO111MODULE=on go get -u github.com/hashicorp/go-msgpack/codec/codecgen@v1.1.5
 
 .PHONY: lint-deps
 lint-deps: ## Install linter dependencies
 	@echo "==> Updating linter dependencies..."
-	go get -u github.com/golangci/golangci-lint/cmd/golangci-lint
-	go get -u github.com/client9/misspell/cmd/misspell
+	GO111MODULE=on go get -u github.com/golangci/golangci-lint/cmd/golangci-lint@v1.24.0
+	GO111MODULE=on go get -u github.com/client9/misspell/cmd/misspell
 
 .PHONY: git-hooks
 git-dir = $(shell git rev-parse --git-dir)
@@ -170,14 +196,21 @@ check: ## Lint the source code
 	@golangci-lint run -j 1
 
 	@echo "==> Spell checking website..."
-	@misspell -error -source=text website/source/
+	@misspell -error -source=text website/pages/
 
 	@echo "==> Check proto files are in-sync..."
 	@$(MAKE) proto
-	@if (git status | grep -q .pb.go); then echo the following proto files are out of sync; git status |grep .pb.go; exit 1; fi
+	@if (git status -s | grep -q .pb.go); then echo the following proto files are out of sync; git status -s | grep .pb.go; exit 1; fi
+
+	@echo "==> Check format of jobspecs and HCL files..."
+	@$(MAKE) hclfmt
+	@if (git status -s | grep -q -e '\.hcl$$' -e '\.nomad$$'); then echo the following HCL files are out of sync; git status -s | grep -e '\.hcl$$' -e '\.nomad$$'; exit 1; fi
 
 	@echo "==> Check API package is isolated from rest"
 	@if go list --test -f '{{ join .Deps "\n" }}' ./api | grep github.com/hashicorp/nomad/ | grep -v -e /vendor/ -e /nomad/api/ -e nomad/api.test; then echo "  /api package depends the ^^ above internal nomad packages.  Remove such dependency"; exit 1; fi
+
+	@echo "==> Check non-vendored packages"
+	@if go list --test -tags "$(GO_TAGS)" -f '{{join .Deps "\n"}}' . | grep -v github.com/hashicorp/nomad.test | xargs go list -tags "$(GO_TAGS)" -f '{{if not .Standard}}{{.ImportPath}}{{end}}' | grep -v -e github.com/hashicorp/nomad; then echo "  found referenced packages ^^ that are not vendored"; exit 1; fi
 
 .PHONY: checkscripts
 checkscripts: ## Lint shell scripts
@@ -196,7 +229,7 @@ generate-structs: ## Update generated code
 .PHONY: proto
 proto:
 	@echo "--> Generating proto bindings..."
-	@for file in $$(git ls-files "*.proto" | grep -v "vendor\/.*.proto"); do \
+	@for file in $$(git ls-files "*.proto" | grep -E -v -- "vendor\/.*.proto|demo\/.*.proto"); do \
 		protoc -I . -I ../../.. --go_out=plugins=grpc:. $$file; \
 	done
 
@@ -315,10 +348,6 @@ static-assets: ## Compile the static routes to serve alongside the API
 	@echo "--> Generating static assets"
 	@go-bindata-assetfs -pkg agent -prefix ui -modtime 1480000000 -tags ui -o bindata_assetfs.go ./ui/dist/...
 	@mv bindata_assetfs.go command/agent
-
-.PHONY: test-website
-test-website: ## Run Website Link Checks
-	@cd website && make test
 
 .PHONY: test-ui
 test-ui: ## Run Nomad UI test suite
