@@ -245,6 +245,9 @@ type QueryOptions struct {
 	// If set, used as prefix for resource list searches
 	Prefix string
 
+	// If set, used as token for resource list searches
+	Token string
+
 	// AuthToken is secret portion of the ACL token used for the request
 	AuthToken string
 
@@ -1703,6 +1706,9 @@ type Node struct {
 	// NodeClass is an opaque identifier used to group nodes
 	// together for the purpose of determining scheduling pressure.
 	NodeClass string
+
+	// The SecretID of an ACL token to use to authenticate RPC requests
+	Token string
 
 	// ComputedClass is a unique id that identifies nodes with a common set of
 	// attributes and capabilities.

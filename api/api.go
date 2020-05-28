@@ -52,6 +52,9 @@ type QueryOptions struct {
 	// If set, used as prefix for resource list searches
 	Prefix string
 
+	// If set, used as Token lookup for resource list searches
+	Token string
+
 	// Set HTTP parameters on the query.
 	Params map[string]string
 
@@ -536,6 +539,9 @@ func (r *request) setQueryOptions(q *QueryOptions) {
 	}
 	if q.WaitTime != 0 {
 		r.params.Set("wait", durToMsec(q.WaitTime))
+	}
+	if q.Token != "" {
+		r.params.Set("token", q.Token)
 	}
 	if q.Prefix != "" {
 		r.params.Set("prefix", q.Prefix)

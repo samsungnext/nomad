@@ -33,6 +33,7 @@ type NodeStatusCommand struct {
 	stats       bool
 	json        bool
 	tmpl        string
+	tokenLookup bool
 }
 
 func (c *NodeStatusCommand) Help() string {
@@ -74,7 +75,10 @@ Node Status Options:
     Output the node in its JSON format.
 
   -t
-    Format and display node using a Go template.
+	Format and display node using a Go template.
+  
+  -tokenLookup
+    Treat the argument as token lookup.
 `
 	return strings.TrimSpace(helpText)
 }
@@ -86,13 +90,14 @@ func (c *NodeStatusCommand) Synopsis() string {
 func (c *NodeStatusCommand) AutocompleteFlags() complete.Flags {
 	return mergeAutocompleteFlags(c.Meta.AutocompleteFlags(FlagSetClient),
 		complete.Flags{
-			"-allocs":  complete.PredictNothing,
-			"-json":    complete.PredictNothing,
-			"-self":    complete.PredictNothing,
-			"-short":   complete.PredictNothing,
-			"-stats":   complete.PredictNothing,
-			"-t":       complete.PredictAnything,
-			"-verbose": complete.PredictNothing,
+			"-allocs":       complete.PredictNothing,
+			"-json":         complete.PredictNothing,
+			"-self":         complete.PredictNothing,
+			"-short":        complete.PredictNothing,
+			"-stats":        complete.PredictNothing,
+			"-t":            complete.PredictAnything,
+			"-token-lookup": complete.PredictAnything,
+			"-verbose":      complete.PredictNothing,
 		})
 }
 
@@ -124,6 +129,7 @@ func (c *NodeStatusCommand) Run(args []string) int {
 	flags.BoolVar(&c.stats, "stats", false, "")
 	flags.BoolVar(&c.json, "json", false, "")
 	flags.StringVar(&c.tmpl, "t", "", "")
+	flags.BoolVar(&c.tokenLookup, "token-lookup", false, "")
 
 	if err := flags.Parse(args); err != nil {
 		return 1
@@ -224,10 +230,16 @@ func (c *NodeStatusCommand) Run(args []string) int {
 	}
 
 	// Query the specific node
-	var nodeID string
-	if !c.self {
-		nodeID = args[0]
-	} else {
+	var nodeID = args[0]
+	if c.tokenLookup {
+		nodes, _, err := client.Nodes().TokenList(nodeID)
+		if err != nil {
+			c.Ui.Error(err.Error())
+			return 1
+		}
+		c.Ui.Output(formatNodeStubList(nodes, c.verbose))
+		return 0
+	} else if c.self {
 		var err error
 		if nodeID, err = getLocalNodeID(client); err != nil {
 			c.Ui.Error(err.Error())

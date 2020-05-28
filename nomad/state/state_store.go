@@ -1285,6 +1285,19 @@ func (s *StateStore) NodesByIDPrefix(ws memdb.WatchSet, nodeID string) (memdb.Re
 	return iter, nil
 }
 
+// NodesByToken is used to lookup nodes by token
+func (s *StateStore) NodesByToken(ws memdb.WatchSet, token string) (memdb.ResultIterator, error) {
+	txn := s.db.Txn(false)
+
+	iter, err := txn.Get("nodes", "token", token)
+	if err != nil {
+		return nil, fmt.Errorf("node lookup failed: %v", err)
+	}
+	ws.Add(iter.WatchCh())
+
+	return iter, nil
+}
+
 // NodeBySecretID is used to lookup a node by SecretID
 func (s *StateStore) NodeBySecretID(ws memdb.WatchSet, secretID string) (*structs.Node, error) {
 	txn := s.db.Txn(false)

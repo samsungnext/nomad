@@ -699,6 +699,11 @@ func (c *Client) secretNodeID() string {
 	return c.config.Node.SecretID
 }
 
+// AuthToken returns the ACL token for client RPC authentication
+func (c *Client) AuthToken() string {
+	return c.config.Node.Token
+}
+
 // RPCMajorVersion returns the structs.ApiMajorVersion supported by the
 // client.
 func (c *Client) RPCMajorVersion() int {
@@ -1277,7 +1282,7 @@ func (c *Client) nodeID() (id, secret string, err error) {
 	}
 
 	// Attempt to read existing secret ID
-	secretPath := filepath.Join(c.config.StateDir, "secret-id")
+	secretPath := filepath.Join(c.config.StateDir, "secret-id") // TODO: override this from command args
 	secretBuf, err := ioutil.ReadFile(secretPath)
 	if err != nil && !os.IsNotExist(err) {
 		return "", "", err
@@ -1661,8 +1666,11 @@ func (c *Client) submitNodeEvents(events []*structs.NodeEvent) error {
 		nodeID: events,
 	}
 	req := structs.EmitNodeEventsRequest{
-		NodeEvents:   nodeEvents,
-		WriteRequest: structs.WriteRequest{Region: c.Region()},
+		NodeEvents: nodeEvents,
+		WriteRequest: structs.WriteRequest{
+			Region:    c.Region(),
+			AuthToken: c.AuthToken(),
+		},
 	}
 	var resp structs.EmitNodeEventsResponse
 	if err := c.RPC("Node.EmitEvents", &req, &resp); err != nil {
@@ -1744,8 +1752,11 @@ func (c *Client) retryRegisterNode() {
 func (c *Client) registerNode() error {
 	node := c.Node()
 	req := structs.NodeRegisterRequest{
-		Node:         node,
-		WriteRequest: structs.WriteRequest{Region: c.Region()},
+		Node: node,
+		WriteRequest: structs.WriteRequest{
+			Region:    c.Region(),
+			AuthToken: c.AuthToken(),
+		},
 	}
 	var resp structs.NodeUpdateResponse
 	if err := c.RPC("Node.Register", &req, &resp); err != nil {
@@ -1774,9 +1785,12 @@ func (c *Client) registerNode() error {
 func (c *Client) updateNodeStatus() error {
 	start := time.Now()
 	req := structs.NodeUpdateStatusRequest{
-		NodeID:       c.NodeID(),
-		Status:       structs.NodeStatusReady,
-		WriteRequest: structs.WriteRequest{Region: c.Region()},
+		NodeID: c.NodeID(),
+		Status: structs.NodeStatusReady,
+		WriteRequest: structs.WriteRequest{
+			Region:    c.Region(),
+			AuthToken: c.AuthToken(),
+		},
 	}
 	var resp structs.NodeUpdateResponse
 	if err := c.RPC("Node.UpdateStatus", &req, &resp); err != nil {
@@ -1903,8 +1917,11 @@ func (c *Client) allocSync() {
 
 			// Send to server.
 			args := structs.AllocUpdateRequest{
-				Alloc:        sync,
-				WriteRequest: structs.WriteRequest{Region: c.Region()},
+				Alloc: sync,
+				WriteRequest: structs.WriteRequest{
+					Region:    c.Region(),
+					AuthToken: c.AuthToken(),
+				},
 			}
 
 			var resp structs.GenericResponse

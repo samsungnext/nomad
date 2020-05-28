@@ -627,6 +627,14 @@ func parsePrefix(req *http.Request, b *structs.QueryOptions) {
 	}
 }
 
+// parsePrefix is used to parse the ?token query param
+func parseToken(req *http.Request, b *structs.QueryOptions) {
+	query := req.URL.Query()
+	if token := query.Get("token"); token != "" {
+		b.Token = token
+	}
+}
+
 // parseRegion is used to parse the ?region query param
 func (s *HTTPServer) parseRegion(req *http.Request, r *string) {
 	if other := req.URL.Query().Get("region"); other != "" {
@@ -659,6 +667,7 @@ func (s *HTTPServer) parse(resp http.ResponseWriter, req *http.Request, r *strin
 	s.parseToken(req, &b.AuthToken)
 	parseConsistency(req, b)
 	parsePrefix(req, b)
+	parseToken(req, b)
 	parseNamespace(req, &b.Namespace)
 	return parseWait(resp, req, b)
 }
