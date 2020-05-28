@@ -10,7 +10,7 @@ sudo chown -R ubuntu:ubuntu /ops/shared
 
 cd /ops
 
-CONSULVERSION=1.6.1
+CONSULVERSION=1.7.3
 CONSULDOWNLOAD=https://releases.hashicorp.com/consul/${CONSULVERSION}/consul_${CONSULVERSION}_linux_amd64.zip
 CONSULCONFIGDIR=/etc/consul.d
 CONSULDIR=/opt/consul
@@ -29,7 +29,7 @@ NOMADDIR=/opt/nomad
 # Dependencies
 sudo apt-get install -y software-properties-common
 sudo apt-get update
-sudo apt-get install -y unzip tree redis-tools jq curl tmux awscli
+sudo apt-get install -y unzip tree redis-tools jq curl tmux awscli nfs-common
 
 # Numpy (for Spark)
 sudo apt-get install -y python-setuptools

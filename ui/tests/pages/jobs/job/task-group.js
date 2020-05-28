@@ -11,9 +11,11 @@ import {
 
 import allocations from 'nomad-ui/tests/pages/components/allocations';
 import error from 'nomad-ui/tests/pages/components/error';
+import pageSizeSelect from 'nomad-ui/tests/pages/components/page-size-select';
+import LifecycleChart from 'nomad-ui/tests/pages/components/lifecycle-chart';
 
 export default create({
-  pageSize: 10,
+  pageSize: 25,
 
   visit: visitable('/jobs/:id/:name'),
 
@@ -38,9 +40,21 @@ export default create({
 
   isEmpty: isPresent('[data-test-empty-allocations-list]'),
 
+  lifecycleChart: LifecycleChart,
+
+  hasVolumes: isPresent('[data-test-volumes]'),
+  volumes: collection('[data-test-volumes] [data-test-volume]', {
+    name: text('[data-test-volume-name]'),
+    type: text('[data-test-volume-type]'),
+    source: text('[data-test-volume-source]'),
+    permissions: text('[data-test-volume-permissions]'),
+  }),
+
   error: error(),
 
   emptyState: {
     headline: text('[data-test-empty-allocations-list-headline]'),
   },
+
+  pageSizeSelect: pageSizeSelect(),
 });

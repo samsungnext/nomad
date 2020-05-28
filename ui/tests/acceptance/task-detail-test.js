@@ -31,6 +31,10 @@ module('Acceptance | task detail', function(hooks) {
       'Task started at'
     );
 
+    const lifecycle = server.db.tasks.where({ name: task.name })[0].Lifecycle;
+    const prestartString = lifecycle && lifecycle.Sidecar ? 'sidecar' : 'prestart';
+    assert.equal(Task.lifecycle, lifecycle ? prestartString : 'main');
+
     assert.equal(document.title, `Task ${task.name} - Nomad`);
   });
 
@@ -92,6 +96,86 @@ module('Acceptance | task detail', function(hooks) {
     assert.equal(Task.resourceCharts.objectAt(1).name, 'Memory', 'Second chart is Memory');
   });
 
+  test('/allocation/:id/:task_name lists related prestart tasks for a main task when they exist', async function(assert) {
+    const job = server.create('job', {
+      groupsCount: 2,
+      groupTaskCount: 3,
+      createAllocations: false,
+      status: 'running',
+    });
+
+    job.task_group_ids.forEach(taskGroupId => {
+      server.create('allocation', {
+        jobId: job.id,
+        taskGroup: server.db.taskGroups.find(taskGroupId).name,
+        forceRunningClientStatus: true,
+      });
+    });
+
+    const taskGroup = job.task_groups.models[0];
+    const [mainTask, sidecarTask, prestartTask] = taskGroup.tasks.models;
+
+    mainTask.attrs.Lifecycle = null;
+    mainTask.save();
+
+    sidecarTask.attrs.Lifecycle = { Sidecar: true, Hook: 'prestart' };
+    sidecarTask.save();
+
+    prestartTask.attrs.Lifecycle = { Sidecar: false, Hook: 'prestart' };
+    prestartTask.save();
+
+    taskGroup.save();
+
+    const noPrestartTasksTaskGroup = job.task_groups.models[1];
+    noPrestartTasksTaskGroup.tasks.models.forEach(task => {
+      task.attrs.Lifecycle = null;
+      task.save();
+    });
+
+    const mainTaskState = server.schema.taskStates.findBy({ name: mainTask.name });
+    const sidecarTaskState = server.schema.taskStates.findBy({ name: sidecarTask.name });
+    const prestartTaskState = server.schema.taskStates.findBy({ name: prestartTask.name });
+
+    prestartTaskState.attrs.state = 'running';
+    prestartTaskState.attrs.finishedAt = null;
+    prestartTaskState.save();
+
+    await Task.visit({ id: mainTaskState.allocationId, name: mainTask.name });
+
+    assert.ok(Task.hasPrestartTasks);
+    assert.equal(Task.prestartTasks.length, 2);
+
+    Task.prestartTasks[0].as(SidecarTask => {
+      assert.equal(SidecarTask.name, sidecarTask.name);
+      assert.equal(SidecarTask.state, sidecarTaskState.state);
+      assert.equal(SidecarTask.lifecycle, 'sidecar');
+      assert.notOk(SidecarTask.isBlocking);
+    });
+
+    Task.prestartTasks[1].as(PrestartTask => {
+      assert.equal(PrestartTask.name, prestartTask.name);
+      assert.equal(PrestartTask.state, prestartTaskState.state);
+      assert.equal(PrestartTask.lifecycle, 'prestart');
+      assert.ok(PrestartTask.isBlocking);
+    });
+
+    await Task.visit({ id: sidecarTaskState.allocationId, name: sidecarTask.name });
+
+    assert.notOk(Task.hasPrestartTasks);
+
+    const noPrestartTasksTask = noPrestartTasksTaskGroup.tasks.models[0];
+    const noPrestartTasksTaskState = server.db.taskStates.findBy({
+      name: noPrestartTasksTask.name,
+    });
+
+    await Task.visit({
+      id: noPrestartTasksTaskState.allocationId,
+      name: noPrestartTasksTaskState.name,
+    });
+
+    assert.notOk(Task.hasPrestartTasks);
+  });
+
   test('the addresses table lists all reserved and dynamic ports', async function(assert) {
     const taskResources = allocation.taskResourceIds
       .map(id => server.db.taskResources.find(id))
@@ -126,6 +210,44 @@ module('Acceptance | task detail', function(hooks) {
     const events = server.db.taskEvents.where({ taskStateId: task.id });
 
     assert.equal(Task.events.length, events.length, `Lists ${events.length} events`);
+  });
+
+  test('when a task has volumes, the volumes table is shown', async function(assert) {
+    const taskGroup = server.schema.taskGroups.where({
+      jobId: allocation.jobId,
+      name: allocation.taskGroup,
+    }).models[0];
+
+    const jobTask = taskGroup.tasks.models.find(m => m.name === task.name);
+
+    assert.ok(Task.hasVolumes);
+    assert.equal(Task.volumes.length, jobTask.volumeMounts.length);
+  });
+
+  test('when a task does not have volumes, the volumes table is not shown', async function(assert) {
+    const job = server.create('job', { createAllocations: false, noHostVolumes: true });
+    allocation = server.create('allocation', { jobId: job.id, clientStatus: 'running' });
+    task = server.db.taskStates.where({ allocationId: allocation.id })[0];
+
+    await Task.visit({ id: allocation.id, name: task.name });
+    assert.notOk(Task.hasVolumes);
+  });
+
+  test('each volume in the volumes table shows information about the volume', async function(assert) {
+    const taskGroup = server.schema.taskGroups.where({
+      jobId: allocation.jobId,
+      name: allocation.taskGroup,
+    }).models[0];
+
+    const jobTask = taskGroup.tasks.models.find(m => m.name === task.name);
+    const volume = jobTask.volumeMounts[0];
+
+    Task.volumes[0].as(volumeRow => {
+      assert.equal(volumeRow.name, volume.Volume);
+      assert.equal(volumeRow.destination, volume.Destination);
+      assert.equal(volumeRow.permissions, volume.ReadOnly ? 'Read' : 'Read/Write');
+      assert.equal(volumeRow.clientSource, taskGroup.volumes[volume.Volume].Source);
+    });
   });
 
   test('each recent event should list the time, type, and description of the event', async function(assert) {
@@ -213,6 +335,10 @@ module('Acceptance | task detail', function(hooks) {
     await Task.inlineError.dismiss();
 
     assert.notOk(Task.inlineError.isShown, 'Inline error is no longer shown');
+  });
+
+  test('exec button is present', async function(assert) {
+    assert.ok(Task.execButton.isPresent);
   });
 });
 
@@ -307,6 +433,10 @@ module('Acceptance | task detail (not running)', function(hooks) {
   test('when the allocation for a task is not running, the resource utilization graphs are replaced by an empty message', async function(assert) {
     assert.equal(Task.resourceCharts.length, 0, 'No resource charts');
     assert.equal(Task.resourceEmptyMessage, "Task isn't running", 'Empty message is appropriate');
+  });
+
+  test('exec button is absent', async function(assert) {
+    assert.notOk(Task.execButton.isPresent);
   });
 });
 

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -50,6 +51,9 @@ type QueryOptions struct {
 
 	// If set, used as prefix for resource list searches
 	Prefix string
+
+	// If set, used as Token lookup for resource list searches
+	Token string
 
 	// Set HTTP parameters on the query.
 	Params map[string]string
@@ -536,6 +540,9 @@ func (r *request) setQueryOptions(q *QueryOptions) {
 	if q.WaitTime != 0 {
 		r.params.Set("wait", durToMsec(q.WaitTime))
 	}
+	if q.Token != "" {
+		r.params.Set("token", q.Token)
+	}
 	if q.Prefix != "" {
 		r.params.Set("prefix", q.Prefix)
 	}
@@ -930,8 +937,16 @@ func parseWriteMeta(resp *http.Response, q *WriteMeta) error {
 
 // decodeBody is used to JSON decode a body
 func decodeBody(resp *http.Response, out interface{}) error {
-	dec := json.NewDecoder(resp.Body)
-	return dec.Decode(out)
+	switch resp.ContentLength {
+	case 0:
+		if out == nil {
+			return nil
+		}
+		return errors.New("Got 0 byte response with non-nil decode object")
+	default:
+		dec := json.NewDecoder(resp.Body)
+		return dec.Decode(out)
+	}
 }
 
 // encodeBody is used to encode a request body

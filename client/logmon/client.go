@@ -26,7 +26,6 @@ func (c *logmonClient) Start(cfg *LogConfig) error {
 		MaxFileSizeMb:  uint32(cfg.MaxFileSizeMB),
 		StdoutFifo:     cfg.StdoutFifo,
 		StderrFifo:     cfg.StderrFifo,
-		FileExtension:  cfg.FileExtension,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), logmonRPCTimeout)
 	defer cancel()

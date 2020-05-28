@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"runtime"
 	"sort"
 	"time"
@@ -31,6 +30,7 @@ type Process struct {
 	numThreads     int32
 	memInfo        *MemoryInfoStat
 	sigInfo        *SignalInfoStat
+	createTime     int64
 
 	lastCPUTimes *cpu.TimesStat
 	lastCPUTime  time.Time
@@ -163,6 +163,7 @@ func NewProcess(pid int32) (*Process, error) {
 	if !exists {
 		return p, ErrorProcessNotRunning
 	}
+	p.CreateTime()
 	return p, nil
 }
 
@@ -222,13 +223,48 @@ func (p *Process) PercentWithContext(ctx context.Context, interval time.Duration
 	return ret, nil
 }
 
+// IsRunning returns whether the process is still running or not.
+func (p *Process) IsRunning() (bool, error) {
+	return p.IsRunningWithContext(context.Background())
+}
+
+func (p *Process) IsRunningWithContext(ctx context.Context) (bool, error) {
+	createTime, err := p.CreateTimeWithContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	p2, err := NewProcess(p.Pid)
+	if err == ErrorProcessNotRunning {
+		return false, nil
+	}
+	createTime2, err := p2.CreateTimeWithContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	return createTime == createTime2, nil
+}
+
+// CreateTime returns created time of the process in milliseconds since the epoch, in UTC.
+func (p *Process) CreateTime() (int64, error) {
+	return p.CreateTimeWithContext(context.Background())
+}
+
+func (p *Process) CreateTimeWithContext(ctx context.Context) (int64, error) {
+	if p.createTime != 0 {
+		return p.createTime, nil
+	}
+	createTime, err := p.createTimeWithContext(ctx)
+	p.createTime = createTime
+	return p.createTime, err
+}
+
 func calculatePercent(t1, t2 *cpu.TimesStat, delta float64, numcpu int) float64 {
 	if delta == 0 {
 		return 0
 	}
 	delta_proc := t2.Total() - t1.Total()
 	overall_percent := ((delta_proc / delta) * 100) * float64(numcpu)
-	return math.Min(100, math.Max(0, overall_percent))
+	return overall_percent
 }
 
 // MemoryPercent returns how many percent of the total RAM this process uses
@@ -249,7 +285,7 @@ func (p *Process) MemoryPercentWithContext(ctx context.Context) (float32, error)
 	}
 	used := processMemory.RSS
 
-	return float32(math.Min(100, math.Max(0, (100*float64(used)/float64(total))))), nil
+	return (100 * float32(used) / float32(total)), nil
 }
 
 // CPU_Percent returns how many percent of the CPU time this process uses
@@ -274,5 +310,5 @@ func (p *Process) CPUPercentWithContext(ctx context.Context) (float64, error) {
 		return 0, nil
 	}
 
-	return math.Min(100, math.Max(0, 100*cput.Total()/totalTime)), nil
+	return 100 * cput.Total() / totalTime, nil
 }

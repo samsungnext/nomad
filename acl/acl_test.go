@@ -81,8 +81,6 @@ func TestACLManagement(t *testing.T) {
 	assert.True(acl.AllowAgentWrite())
 	assert.True(acl.AllowNodeRead())
 	assert.True(acl.AllowNodeWrite())
-	assert.True(acl.AllowNodeRPCRead())
-	assert.True(acl.AllowNodeRPCWrite())
 	assert.True(acl.AllowOperatorRead())
 	assert.True(acl.AllowOperatorWrite())
 	assert.True(acl.AllowQuotaRead())
@@ -115,8 +113,6 @@ func TestACLMerge(t *testing.T) {
 	assert.True(acl.AllowAgentWrite())
 	assert.True(acl.AllowNodeRead())
 	assert.True(acl.AllowNodeWrite())
-	assert.True(acl.AllowNodeRPCRead())
-	assert.True(acl.AllowNodeRPCWrite())
 	assert.True(acl.AllowOperatorRead())
 	assert.True(acl.AllowOperatorWrite())
 	assert.True(acl.AllowQuotaRead())
@@ -141,8 +137,6 @@ func TestACLMerge(t *testing.T) {
 	assert.False(acl.AllowAgentWrite())
 	assert.True(acl.AllowNodeRead())
 	assert.False(acl.AllowNodeWrite())
-	assert.True(acl.AllowNodeRPCRead())
-	assert.False(acl.AllowNodeRPCWrite())
 	assert.True(acl.AllowOperatorRead())
 	assert.False(acl.AllowOperatorWrite())
 	assert.True(acl.AllowQuotaRead())
@@ -167,8 +161,6 @@ func TestACLMerge(t *testing.T) {
 	assert.False(acl.AllowAgentWrite())
 	assert.False(acl.AllowNodeRead())
 	assert.False(acl.AllowNodeWrite())
-	assert.False(acl.AllowNodeRPCRead())
-	assert.False(acl.AllowNodeRPCWrite())
 	assert.False(acl.AllowOperatorRead())
 	assert.False(acl.AllowOperatorWrite())
 	assert.False(acl.AllowQuotaRead())
@@ -183,9 +175,6 @@ agent {
 	policy = "read"
 }
 node {
-	policy = "read"
-}
-noderpc {
 	policy = "read"
 }
 operator {
@@ -206,9 +195,6 @@ agent {
 node {
 	policy = "write"
 }
-noderpc {
-	policy = "write"
-}
 operator {
 	policy = "write"
 }
@@ -225,9 +211,6 @@ agent {
 	policy = "deny"
 }
 node {
-	policy = "deny"
-}
-noderpc {
 	policy = "deny"
 }
 operator {

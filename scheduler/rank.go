@@ -21,6 +21,7 @@ type RankedNode struct {
 	FinalScore     float64
 	Scores         []float64
 	TaskResources  map[string]*structs.AllocatedTaskResources
+	TaskLifecycles map[string]*structs.TaskLifecycleConfig
 	AllocResources *structs.AllocatedSharedResources
 
 	// Allocs is used to cache the proposed allocations on the
@@ -53,8 +54,10 @@ func (r *RankedNode) SetTaskResources(task *structs.Task,
 	resource *structs.AllocatedTaskResources) {
 	if r.TaskResources == nil {
 		r.TaskResources = make(map[string]*structs.AllocatedTaskResources)
+		r.TaskLifecycles = make(map[string]*structs.TaskLifecycleConfig)
 	}
 	r.TaskResources[task.Name] = resource
+	r.TaskLifecycles[task.Name] = task.Lifecycle
 }
 
 // RankFeasibleIterator is used to iteratively yield nodes along
@@ -150,17 +153,26 @@ type BinPackIterator struct {
 	priority  int
 	jobId     *structs.NamespacedID
 	taskGroup *structs.TaskGroup
+	scoreFit  func(*structs.Node, *structs.ComparableResources) float64
 }
 
 // NewBinPackIterator returns a BinPackIterator which tries to fit tasks
 // potentially evicting other tasks based on a given priority.
-func NewBinPackIterator(ctx Context, source RankIterator, evict bool, priority int) *BinPackIterator {
+func NewBinPackIterator(ctx Context, source RankIterator, evict bool, priority int, algorithm structs.SchedulerAlgorithm) *BinPackIterator {
+
+	scoreFn := structs.ScoreFitBinPack
+	if algorithm == structs.SchedulerAlgorithmSpread {
+		scoreFn = structs.ScoreFitSpread
+	}
+
 	iter := &BinPackIterator{
 		ctx:      ctx,
 		source:   source,
 		evict:    evict,
 		priority: priority,
+		scoreFit: scoreFn,
 	}
+	iter.ctx.Logger().Named("binpack").Trace("NewBinPackIterator created", "algorithm", algorithm)
 	return iter
 }
 
@@ -205,6 +217,8 @@ OUTER:
 		// Assign the resources for each task
 		total := &structs.AllocatedResources{
 			Tasks: make(map[string]*structs.AllocatedTaskResources,
+				len(iter.taskGroup.Tasks)),
+			TaskLifecycles: make(map[string]*structs.TaskLifecycleConfig,
 				len(iter.taskGroup.Tasks)),
 			Shared: structs.AllocatedSharedResources{
 				DiskMB: int64(iter.taskGroup.EphemeralDisk.SizeMB),
@@ -391,6 +405,7 @@ OUTER:
 
 			// Accumulate the total resource requirement
 			total.Tasks[task.Name] = taskResources
+			total.TaskLifecycles[task.Name] = task.Lifecycle
 		}
 
 		// Store current set of running allocs before adding resources for the task group
@@ -430,7 +445,7 @@ OUTER:
 		}
 
 		// Score the fit normally otherwise
-		fitness := structs.ScoreFit(option.Node, util)
+		fitness := iter.scoreFit(option.Node, util)
 		normalizedFit := fitness / binPackingMaxFitScore
 		option.Scores = append(option.Scores, normalizedFit)
 		iter.ctx.Metrics().ScoreNode(option.Node, "binpack", normalizedFit)

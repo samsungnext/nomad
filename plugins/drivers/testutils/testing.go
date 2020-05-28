@@ -78,7 +78,7 @@ func (h *DriverHarness) Kill() {
 // MkAllocDir creates a temporary directory and allocdir structure.
 // If enableLogs is set to true a logmon instance will be started to write logs
 // to the LogDir of the task
-// A cleanup func is returned and should be defered so as to not leak dirs
+// A cleanup func is returned and should be deferred so as to not leak dirs
 // between tests.
 func (h *DriverHarness) MkAllocDir(t *drivers.TaskConfig, enableLogs bool) func() {
 	dir, err := ioutil.TempDir("", "nomad_driver_harness-")
@@ -139,7 +139,6 @@ func (h *DriverHarness) MkAllocDir(t *drivers.TaskConfig, enableLogs bool) func(
 			StderrFifo:    t.StderrPath,
 			MaxFiles:      10,
 			MaxFileSizeMB: 10,
-			FileExtension: "",
 		})
 		require.NoError(h.t, err)
 

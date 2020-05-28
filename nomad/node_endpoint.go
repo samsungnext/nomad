@@ -78,11 +78,12 @@ type Node struct {
 
 // Register is used to upsert a client that is available for scheduling
 func (n *Node) Register(args *structs.NodeRegisterRequest, reply *structs.NodeUpdateResponse) error {
+	isForwarded := args.IsForwarded()
 	if done, err := n.srv.forward("Node.Register", args, args, reply); done {
 		// We have a valid node connection since there is no error from the
 		// forwarded server, so add the mapping to cache the
 		// connection and allow the server to send RPCs to the client.
-		if err == nil && n.ctx != nil && n.ctx.NodeID == "" {
+		if err == nil && n.ctx != nil && n.ctx.NodeID == "" && !isForwarded {
 			n.ctx.NodeID = args.Node.ID
 			n.srv.addNodeConn(n.ctx)
 		}
@@ -91,15 +92,15 @@ func (n *Node) Register(args *structs.NodeRegisterRequest, reply *structs.NodeUp
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "register"}, time.Now())
 
-	if n.srv.config.ACLEnforceNode {
-		// Check noderpc write permissions
-		if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
-			return err
-		} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
-			return structs.ErrPermissionDenied
-		}
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
 	}
-
+	// if args.WriteRequest.AuthToken == nil {
+	// 	return fmt.Errorf("missing write request AuthToken")
+	// }
 	// Validate the arguments
 	if args.Node == nil {
 		return fmt.Errorf("missing node for client registration")
@@ -299,10 +300,10 @@ func (n *Node) deregister(args *structs.NodeBatchDeregisterRequest,
 	reply *structs.NodeUpdateResponse,
 	raftApplyFn func() (interface{}, uint64, error),
 ) error {
-	// Check request permissions
+	// Check noderpc write permissions
 	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
 		return err
-	} else if aclObj != nil && !aclObj.AllowNodeWrite() {
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
 		return structs.ErrPermissionDenied
 	}
 
@@ -379,16 +380,23 @@ func (n *Node) deregister(args *structs.NodeBatchDeregisterRequest,
 
 // UpdateStatus is used to update the status of a client node
 func (n *Node) UpdateStatus(args *structs.NodeUpdateStatusRequest, reply *structs.NodeUpdateResponse) error {
+	isForwarded := args.IsForwarded()
 	if done, err := n.srv.forward("Node.UpdateStatus", args, args, reply); done {
 		// We have a valid node connection since there is no error from the
 		// forwarded server, so add the mapping to cache the
 		// connection and allow the server to send RPCs to the client.
-		if err == nil && n.ctx != nil && n.ctx.NodeID == "" {
+		if err == nil && n.ctx != nil && n.ctx.NodeID == "" && !isForwarded {
 			n.ctx.NodeID = args.NodeID
 			n.srv.addNodeConn(n.ctx)
 		}
 
 		return err
+	}
+
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
 	}
 
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_status"}, time.Now())
@@ -521,6 +529,13 @@ func (n *Node) UpdateDrain(args *structs.NodeUpdateDrainRequest,
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_drain"}, time.Now())
 
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
+
 	// Check node write permissions
 	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
 		return err
@@ -616,6 +631,7 @@ func (n *Node) UpdateDrain(args *structs.NodeUpdateDrainRequest,
 	return nil
 }
 
+// TODO: look how to set Eligibility false by default on connnect
 // UpdateEligibility is used to update the scheduling eligibility of a node
 func (n *Node) UpdateEligibility(args *structs.NodeUpdateEligibilityRequest,
 	reply *structs.NodeEligibilityUpdateResponse) error {
@@ -623,6 +639,13 @@ func (n *Node) UpdateEligibility(args *structs.NodeUpdateEligibilityRequest,
 		return err
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_eligibility"}, time.Now())
+
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
 
 	// Check node write permissions
 	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
@@ -931,11 +954,12 @@ func (n *Node) GetAllocs(args *structs.NodeSpecificRequest,
 // per allocation.
 func (n *Node) GetClientAllocs(args *structs.NodeSpecificRequest,
 	reply *structs.NodeClientAllocsResponse) error {
+	isForwarded := args.IsForwarded()
 	if done, err := n.srv.forward("Node.GetClientAllocs", args, args, reply); done {
 		// We have a valid node connection since there is no error from the
 		// forwarded server, so add the mapping to cache the
 		// connection and allow the server to send RPCs to the client.
-		if err == nil && n.ctx != nil && n.ctx.NodeID == "" {
+		if err == nil && n.ctx != nil && n.ctx.NodeID == "" && !isForwarded {
 			n.ctx.NodeID = args.NodeID
 			n.srv.addNodeConn(n.ctx)
 		}
@@ -1073,6 +1097,13 @@ func (n *Node) UpdateAlloc(args *structs.AllocUpdateRequest, reply *structs.Gene
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "update_alloc"}, time.Now())
 
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
+
 	// Ensure at least a single alloc
 	if len(args.Alloc) == 0 {
 		return fmt.Errorf("must update at least one allocation")
@@ -1088,40 +1119,81 @@ func (n *Node) UpdateAlloc(args *structs.AllocUpdateRequest, reply *structs.Gene
 	now := time.Now()
 	var evals []*structs.Evaluation
 
-	for _, alloc := range args.Alloc {
-		alloc.ModifyTime = now.UTC().UnixNano()
+	// A set of de-duplicated volumes that need volume claim GC.
+	// Later we'll create a gc eval for each volume.
+	volumesToGC := make(map[string][]string) // ID+namespace -> [id, namespace]
 
-		// Add an evaluation if this is a failed alloc that is eligible for rescheduling
-		if alloc.ClientStatus == structs.AllocClientStatusFailed {
-			// Only create evaluations if this is an existing alloc,
-			// and eligible as per its task group's ReschedulePolicy
-			if existingAlloc, _ := n.srv.State().AllocByID(nil, alloc.ID); existingAlloc != nil {
-				job, err := n.srv.State().JobByID(nil, existingAlloc.Namespace, existingAlloc.JobID)
-				if err != nil {
-					n.logger.Error("UpdateAlloc unable to find job", "job", existingAlloc.JobID, "error", err)
-					continue
-				}
-				if job == nil {
-					n.logger.Debug("UpdateAlloc unable to find job", "job", existingAlloc.JobID)
-					continue
-				}
-				taskGroup := job.LookupTaskGroup(existingAlloc.TaskGroup)
-				if taskGroup != nil && existingAlloc.FollowupEvalID == "" && existingAlloc.RescheduleEligible(taskGroup.ReschedulePolicy, now) {
-					eval := &structs.Evaluation{
-						ID:          uuid.Generate(),
-						Namespace:   existingAlloc.Namespace,
-						TriggeredBy: structs.EvalTriggerRetryFailedAlloc,
-						JobID:       existingAlloc.JobID,
-						Type:        job.Type,
-						Priority:    job.Priority,
-						Status:      structs.EvalStatusPending,
-						CreateTime:  now.UTC().UnixNano(),
-						ModifyTime:  now.UTC().UnixNano(),
-					}
-					evals = append(evals, eval)
-				}
+	for _, allocToUpdate := range args.Alloc {
+		allocToUpdate.ModifyTime = now.UTC().UnixNano()
+
+		if !allocToUpdate.TerminalStatus() {
+			continue
+		}
+
+		alloc, _ := n.srv.State().AllocByID(nil, allocToUpdate.ID)
+		if alloc == nil {
+			continue
+		}
+
+		// if the job has been purged, this will always return error
+		job, err := n.srv.State().JobByID(nil, alloc.Namespace, alloc.JobID)
+		if err != nil {
+			n.logger.Debug("UpdateAlloc unable to find job", "job", alloc.JobID, "error", err)
+			continue
+		}
+		if job == nil {
+			n.logger.Debug("UpdateAlloc unable to find job", "job", alloc.JobID)
+			continue
+		}
+
+		taskGroup := job.LookupTaskGroup(alloc.TaskGroup)
+		if taskGroup == nil {
+			continue
+		}
+
+		// If the terminal alloc has CSI volumes, add its job to the list
+		// of jobs we're going to call volume claim GC on.
+		for _, vol := range taskGroup.Volumes {
+			if vol.Type == structs.VolumeTypeCSI {
+				volumesToGC[vol.Source+alloc.Namespace] = []string{vol.Source, alloc.Namespace}
 			}
 		}
+
+		// Add an evaluation if this is a failed alloc that is eligible for rescheduling
+		if allocToUpdate.ClientStatus == structs.AllocClientStatusFailed && alloc.FollowupEvalID == "" && alloc.RescheduleEligible(taskGroup.ReschedulePolicy, now) {
+			eval := &structs.Evaluation{
+				ID:          uuid.Generate(),
+				Namespace:   alloc.Namespace,
+				TriggeredBy: structs.EvalTriggerRetryFailedAlloc,
+				JobID:       alloc.JobID,
+				Type:        job.Type,
+				Priority:    job.Priority,
+				Status:      structs.EvalStatusPending,
+				CreateTime:  now.UTC().UnixNano(),
+				ModifyTime:  now.UTC().UnixNano(),
+			}
+			evals = append(evals, eval)
+		}
+	}
+
+	// Add an evaluation for garbage collecting the the CSI volume claims
+	// of terminal allocs
+	for _, volAndNamespace := range volumesToGC {
+		// we have to build this eval by hand rather than calling srv.CoreJob
+		// here because we need to use the volume's namespace
+		eval := &structs.Evaluation{
+			ID:          uuid.Generate(),
+			Namespace:   volAndNamespace[1],
+			Priority:    structs.CoreJobPriority,
+			Type:        structs.JobTypeCore,
+			TriggeredBy: structs.EvalTriggerAllocStop,
+			JobID:       structs.CoreJobCSIVolumeClaimGC + ":" + volAndNamespace[0],
+			LeaderACL:   n.srv.getLeaderAcl(),
+			Status:      structs.EvalStatusPending,
+			CreateTime:  now.UTC().UnixNano(),
+			ModifyTime:  now.UTC().UnixNano(),
+		}
+		evals = append(evals, eval)
 	}
 
 	// Add this to the batch
@@ -1277,6 +1349,8 @@ func (n *Node) List(args *structs.NodeListRequest,
 			var iter memdb.ResultIterator
 			if prefix := args.QueryOptions.Prefix; prefix != "" {
 				iter, err = state.NodesByIDPrefix(ws, prefix)
+			} else if token := args.QueryOptions.Token; token != "" {
+				iter, err = state.NodesByToken(ws, token)
 			} else {
 				iter, err = state.Nodes(ws)
 			}
@@ -1432,6 +1506,13 @@ func (n *Node) DeriveVaultToken(args *structs.DeriveVaultTokenRequest, reply *st
 		return nil
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "derive_vault_token"}, time.Now())
+
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
 
 	// Verify the arguments
 	if args.NodeID == "" {
@@ -1866,6 +1947,13 @@ func (n *Node) EmitEvents(args *structs.EmitNodeEventsRequest, reply *structs.Em
 		return err
 	}
 	defer metrics.MeasureSince([]string{"nomad", "client", "emit_events"}, time.Now())
+
+	// Check noderpc write permissions
+	if aclObj, err := n.srv.ResolveToken(args.AuthToken); err != nil {
+		return err
+	} else if aclObj != nil && !aclObj.AllowNodeRPCWrite() {
+		return structs.ErrPermissionDenied
+	}
 
 	if len(args.NodeEvents) == 0 {
 		return fmt.Errorf("no node events given")

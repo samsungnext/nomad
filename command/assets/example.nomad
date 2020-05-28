@@ -298,7 +298,6 @@ job "example" {
       # logs {
       #   max_files     = 10
       #   max_file_size = 15
-      #   file_extension = "txt"
       # }
 
       # The "resources" stanza describes the requirements a task needs to

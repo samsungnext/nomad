@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
+	"github.com/hashicorp/nomad/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -2072,6 +2073,15 @@ func TestServiceSched_JobModify_InPlace(t *testing.T) {
 	require.NoError(t, h.State.UpsertJob(h.NextIndex(), job))
 	require.NoError(t, h.State.UpsertDeployment(h.NextIndex(), d))
 
+	taskName := job.TaskGroups[0].Tasks[0].Name
+
+	adr := structs.AllocatedDeviceResource{
+		Type:      "gpu",
+		Vendor:    "nvidia",
+		Name:      "1080ti",
+		DeviceIDs: []string{uuid.Generate()},
+	}
+
 	// Create allocs that are part of the old deployment
 	var allocs []*structs.Allocation
 	for i := 0; i < 10; i++ {
@@ -2082,6 +2092,7 @@ func TestServiceSched_JobModify_InPlace(t *testing.T) {
 		alloc.Name = fmt.Sprintf("my-job.web[%d]", i)
 		alloc.DeploymentID = d.ID
 		alloc.DeploymentStatus = &structs.AllocDeploymentStatus{Healthy: helper.BoolToPtr(true)}
+		alloc.AllocatedResources.Tasks[taskName].Devices = []*structs.AllocatedDeviceResource{&adr}
 		allocs = append(allocs, alloc)
 	}
 	require.NoError(t, h.State.UpsertAllocs(h.NextIndex(), allocs))
@@ -2155,12 +2166,15 @@ func TestServiceSched_JobModify_InPlace(t *testing.T) {
 	}
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 
-	// Verify the network did not change
+	// Verify the allocated networks and devices did not change
 	rp := structs.Port{Label: "admin", Value: 5000}
 	for _, alloc := range out {
-		for _, resources := range alloc.TaskResources {
+		for _, resources := range alloc.AllocatedResources.Tasks {
 			if resources.Networks[0].ReservedPorts[0] != rp {
 				t.Fatalf("bad: %#v", alloc)
+			}
+			if len(resources.Devices) == 0 || reflect.DeepEqual(resources.Devices[0], adr) {
+				t.Fatalf("bad devices has changed: %#v", alloc)
 			}
 		}
 	}
@@ -2751,6 +2765,167 @@ func TestServiceSched_NodeDown(t *testing.T) {
 			}
 
 			h.AssertEvalStatus(t, structs.EvalStatusComplete)
+		})
+	}
+}
+
+func TestServiceSched_StopAfterClientDisconnect(t *testing.T) {
+	cases := []struct {
+		stop        time.Duration
+		when        time.Time
+		rescheduled bool
+	}{
+		{
+			rescheduled: true,
+		},
+		{
+			stop:        1 * time.Second,
+			rescheduled: false,
+		},
+		{
+			stop:        1 * time.Second,
+			when:        time.Now().UTC().Add(-10 * time.Second),
+			rescheduled: true,
+		},
+		{
+			stop:        1 * time.Second,
+			when:        time.Now().UTC().Add(10 * time.Minute),
+			rescheduled: false,
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf(""), func(t *testing.T) {
+			h := NewHarness(t)
+
+			// Node, which is down
+			node := mock.Node()
+			node.Status = structs.NodeStatusDown
+			require.NoError(t, h.State.UpsertNode(h.NextIndex(), node))
+
+			// Job with allocations and stop_after_client_disconnect
+			job := mock.Job()
+			job.TaskGroups[0].Count = 1
+			job.TaskGroups[0].StopAfterClientDisconnect = &tc.stop
+			require.NoError(t, h.State.UpsertJob(h.NextIndex(), job))
+
+			// Alloc for the running group
+			alloc := mock.Alloc()
+			alloc.Job = job
+			alloc.JobID = job.ID
+			alloc.NodeID = node.ID
+			alloc.Name = fmt.Sprintf("my-job.web[%d]", i)
+			alloc.DesiredStatus = structs.AllocDesiredStatusRun
+			alloc.ClientStatus = structs.AllocClientStatusRunning
+			if !tc.when.IsZero() {
+				alloc.AllocStates = []*structs.AllocState{{
+					Field: structs.AllocStateFieldClientStatus,
+					Value: structs.AllocClientStatusLost,
+					Time:  tc.when,
+				}}
+			}
+			allocs := []*structs.Allocation{alloc}
+			require.NoError(t, h.State.UpsertAllocs(h.NextIndex(), allocs))
+
+			// Create a mock evaluation to deal with drain
+			evals := []*structs.Evaluation{{
+				Namespace:   structs.DefaultNamespace,
+				ID:          uuid.Generate(),
+				Priority:    50,
+				TriggeredBy: structs.EvalTriggerNodeDrain,
+				JobID:       job.ID,
+				NodeID:      node.ID,
+				Status:      structs.EvalStatusPending,
+			}}
+			eval := evals[0]
+			require.NoError(t, h.State.UpsertEvals(h.NextIndex(), evals))
+
+			// Process the evaluation
+			err := h.Process(NewServiceScheduler, eval)
+			require.NoError(t, err)
+			require.Equal(t, h.Evals[0].Status, structs.EvalStatusComplete)
+			require.Len(t, h.Plans, 1, "plan")
+
+			// Followup eval created
+			require.True(t, len(h.CreateEvals) > 0)
+			e := h.CreateEvals[0]
+			require.Equal(t, eval.ID, e.PreviousEval)
+
+			if tc.rescheduled {
+				require.Equal(t, "blocked", e.Status)
+			} else {
+				require.Equal(t, "pending", e.Status)
+				require.NotEmpty(t, e.WaitUntil)
+			}
+
+			// This eval is still being inserted in the state store
+			ws := memdb.NewWatchSet()
+			testutil.WaitForResult(func() (bool, error) {
+				found, err := h.State.EvalByID(ws, e.ID)
+				if err != nil {
+					return false, err
+				}
+				if found == nil {
+					return false, nil
+				}
+				return true, nil
+			}, func(err error) {
+				require.NoError(t, err)
+			})
+
+			alloc, err = h.State.AllocByID(ws, alloc.ID)
+			require.NoError(t, err)
+
+			// Allocations have been transitioned to lost
+			require.Equal(t, structs.AllocDesiredStatusStop, alloc.DesiredStatus)
+			require.Equal(t, structs.AllocClientStatusLost, alloc.ClientStatus)
+			// At least 1, 2 if we manually set the tc.when
+			require.NotEmpty(t, alloc.AllocStates)
+
+			if tc.rescheduled {
+				// Register a new node, leave it up, process the followup eval
+				node = mock.Node()
+				require.NoError(t, h.State.UpsertNode(h.NextIndex(), node))
+				require.NoError(t, h.Process(NewServiceScheduler, eval))
+
+				as, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
+				require.NoError(t, err)
+
+				testutil.WaitForResult(func() (bool, error) {
+					as, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
+					if err != nil {
+						return false, err
+					}
+					return len(as) == 2, nil
+				}, func(err error) {
+					require.NoError(t, err)
+				})
+
+				a2 := as[0]
+				if a2.ID == alloc.ID {
+					a2 = as[1]
+				}
+
+				require.Equal(t, structs.AllocClientStatusPending, a2.ClientStatus)
+				require.Equal(t, structs.AllocDesiredStatusRun, a2.DesiredStatus)
+				require.Equal(t, node.ID, a2.NodeID)
+
+				// No blocked evals
+				require.Empty(t, h.ReblockEvals)
+				require.Len(t, h.CreateEvals, 1)
+				require.Equal(t, h.CreateEvals[0].ID, e.ID)
+			} else {
+				// No new alloc was created
+				as, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
+				require.NoError(t, err)
+
+				require.Len(t, as, 1)
+				old := as[0]
+
+				require.Equal(t, alloc.ID, old.ID)
+				require.Equal(t, structs.AllocClientStatusLost, old.ClientStatus)
+				require.Equal(t, structs.AllocDesiredStatusStop, old.DesiredStatus)
+			}
 		})
 	}
 }
@@ -4358,6 +4533,124 @@ func TestBatchSched_ScaleDown_SameName(t *testing.T) {
 		}
 	}
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
+}
+
+func TestGenericSched_AllocFit(t *testing.T) {
+	testCases := []struct {
+		Name             string
+		NodeCpu          int64
+		TaskResources    structs.Resources
+		MainTaskCount    int
+		InitTaskCount    int
+		SideTaskCount    int
+		ShouldPlaceAlloc bool
+	}{
+		{
+			Name:    "simple init + sidecar",
+			NodeCpu: 1200,
+			TaskResources: structs.Resources{
+				CPU:      500,
+				MemoryMB: 256,
+			},
+			MainTaskCount:    1,
+			InitTaskCount:    1,
+			SideTaskCount:    1,
+			ShouldPlaceAlloc: true,
+		},
+		{
+			Name:    "too big init + sidecar",
+			NodeCpu: 1200,
+			TaskResources: structs.Resources{
+				CPU:      700,
+				MemoryMB: 256,
+			},
+			MainTaskCount:    1,
+			InitTaskCount:    1,
+			SideTaskCount:    1,
+			ShouldPlaceAlloc: false,
+		},
+		{
+			Name:    "many init + sidecar",
+			NodeCpu: 1200,
+			TaskResources: structs.Resources{
+				CPU:      100,
+				MemoryMB: 100,
+			},
+			MainTaskCount:    3,
+			InitTaskCount:    5,
+			SideTaskCount:    5,
+			ShouldPlaceAlloc: true,
+		},
+		{
+			Name:    "too many init + sidecar",
+			NodeCpu: 1200,
+			TaskResources: structs.Resources{
+				CPU:      100,
+				MemoryMB: 100,
+			},
+			MainTaskCount:    10,
+			InitTaskCount:    10,
+			SideTaskCount:    10,
+			ShouldPlaceAlloc: false,
+		},
+		{
+			Name:    "too many too big",
+			NodeCpu: 1200,
+			TaskResources: structs.Resources{
+				CPU:      1000,
+				MemoryMB: 100,
+			},
+			MainTaskCount:    10,
+			InitTaskCount:    10,
+			SideTaskCount:    10,
+			ShouldPlaceAlloc: false,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.Name, func(t *testing.T) {
+			h := NewHarness(t)
+			node := mock.Node()
+			node.NodeResources.Cpu.CpuShares = testCase.NodeCpu
+			require.NoError(t, h.State.UpsertNode(h.NextIndex(), node))
+
+			// Create a job with sidecar & init tasks
+			job := mock.VariableLifecycleJob(testCase.TaskResources, testCase.MainTaskCount, testCase.InitTaskCount, testCase.SideTaskCount)
+
+			require.NoError(t, h.State.UpsertJob(h.NextIndex(), job))
+
+			// Create a mock evaluation to register the job
+			eval := &structs.Evaluation{
+				Namespace:   structs.DefaultNamespace,
+				ID:          uuid.Generate(),
+				Priority:    job.Priority,
+				TriggeredBy: structs.EvalTriggerJobRegister,
+				JobID:       job.ID,
+				Status:      structs.EvalStatusPending,
+			}
+			require.NoError(t, h.State.UpsertEvals(h.NextIndex(), []*structs.Evaluation{eval}))
+
+			// Process the evaluation
+			err := h.Process(NewServiceScheduler, eval)
+			require.NoError(t, err)
+
+			allocs := 0
+			if testCase.ShouldPlaceAlloc {
+				allocs = 1
+			}
+			// Ensure no plan as it should be a no-op
+			require.Len(t, h.Plans, allocs)
+
+			// Lookup the allocations by JobID
+			ws := memdb.NewWatchSet()
+			out, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
+			require.NoError(t, err)
+
+			// Ensure no allocations placed
+			require.Len(t, out, allocs)
+
+			h.AssertEvalStatus(t, structs.EvalStatusComplete)
+		})
+	}
 }
 
 func TestGenericSched_ChainedAlloc(t *testing.T) {

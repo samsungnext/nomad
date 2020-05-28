@@ -123,7 +123,7 @@ func (a *AllocGarbageCollector) keepUsageBelowThreshold() error {
 		}
 
 		// Check if we have enough free space
-		if err := a.statsCollector.Collect(); err != nil { // POI
+		if err := a.statsCollector.Collect(); err != nil {
 			return err
 		}
 

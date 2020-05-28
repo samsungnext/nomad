@@ -5,8 +5,8 @@ import (
 	"net"
 
 	log "github.com/hashicorp/go-hclog"
-	sockaddr "github.com/hashicorp/go-sockaddr"
 	"github.com/hashicorp/nomad/nomad/structs"
+	sockaddr "github.com/iqoqo/go-sockaddr"
 )
 
 const (

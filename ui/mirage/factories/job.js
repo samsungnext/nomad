@@ -1,7 +1,7 @@
 import { assign } from '@ember/polyfills';
 import { Factory, trait } from 'ember-cli-mirage';
 import faker from 'nomad-ui/mirage/faker';
-import { provide, provider, pickOne } from '../utils';
+import { provide, pickOne } from '../utils';
 import { DATACENTERS } from '../common';
 
 const JOB_PREFIXES = provide(5, faker.hacker.abbreviation);
@@ -17,6 +17,8 @@ export default Factory.extend({
   name() {
     return this.id;
   },
+
+  version: 1,
 
   groupsCount: () => faker.random.number({ min: 1, max: 2 }),
 
@@ -96,6 +98,9 @@ export default Factory.extend({
   // When true, no evaluations have failed placements
   noFailedPlacements: false,
 
+  // When true, all task groups get the noHostVolumes trait
+  noHostVolumes: false,
+
   // When true, allocations for this job will fail and reschedule, randomly succeeding or not
   withRescheduling: false,
 
@@ -118,13 +123,21 @@ export default Factory.extend({
       });
     }
 
-    const groups = server.createList('task-group', job.groupsCount, {
+    const groupProps = {
       job,
       createAllocations: job.createAllocations,
       withRescheduling: job.withRescheduling,
       withServices: job.withGroupServices,
       shallow: job.shallow,
-    });
+    };
+
+    if (job.groupTaskCount) {
+      groupProps.count = job.groupTaskCount;
+    }
+
+    const groups = job.noHostVolumes
+      ? server.createList('task-group', job.groupsCount, 'noHostVolumes', groupProps)
+      : server.createList('task-group', job.groupsCount, groupProps);
 
     job.update({
       taskGroupIds: groups.mapBy('id'),

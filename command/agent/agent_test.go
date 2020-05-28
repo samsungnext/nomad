@@ -166,14 +166,12 @@ func TestAgent_ServerConfig(t *testing.T) {
 	conf.Server.BootstrapExpect = 1
 	out, err = a.serverConfig()
 	require.NoError(t, err)
-	require.True(t, out.Bootstrap)
-	require.Equal(t, int32(0), out.BootstrapExpect)
+	require.Equal(t, 1, out.BootstrapExpect)
 
 	conf.Server.BootstrapExpect = 3
 	out, err = a.serverConfig()
 	require.NoError(t, err)
-	require.False(t, out.Bootstrap)
-	require.Equal(t, int32(3), out.BootstrapExpect)
+	require.Equal(t, 3, out.BootstrapExpect)
 }
 
 func TestAgent_ServerConfig_SchedulerFlags(t *testing.T) {
@@ -186,6 +184,7 @@ func TestAgent_ServerConfig_SchedulerFlags(t *testing.T) {
 			"default case",
 			nil,
 			structs.SchedulerConfiguration{
+				SchedulerAlgorithm: "binpack",
 				PreemptionConfig: structs.PreemptionConfig{
 					SystemSchedulerEnabled: true,
 				},
@@ -659,7 +658,8 @@ func TestServer_Reload_TLS_Certificate(t *testing.T) {
 	}
 
 	agent := &Agent{
-		config: agentConfig,
+		auditor: &noOpAuditor{},
+		config:  agentConfig,
 	}
 
 	newConfig := &Config{
@@ -707,7 +707,8 @@ func TestServer_Reload_TLS_Certificate_Invalid(t *testing.T) {
 	}
 
 	agent := &Agent{
-		config: agentConfig,
+		auditor: &noOpAuditor{},
+		config:  agentConfig,
 	}
 
 	newConfig := &Config{
@@ -786,8 +787,9 @@ func TestServer_Reload_TLS_UpgradeToTLS(t *testing.T) {
 	}
 
 	agent := &Agent{
-		logger: logger,
-		config: agentConfig,
+		auditor: &noOpAuditor{},
+		logger:  logger,
+		config:  agentConfig,
 	}
 
 	newConfig := &Config{
@@ -835,8 +837,9 @@ func TestServer_Reload_TLS_DowngradeFromTLS(t *testing.T) {
 	}
 
 	agent := &Agent{
-		logger: logger,
-		config: agentConfig,
+		logger:  logger,
+		config:  agentConfig,
+		auditor: &noOpAuditor{},
 	}
 
 	newConfig := &Config{

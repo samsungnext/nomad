@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gorhill/cronexpr"
+	"github.com/hashicorp/cronexpr"
 )
 
 const (
@@ -45,7 +45,7 @@ type Jobs struct {
 	client *Client
 }
 
-// JobsParseRequest is used for arguments of the /vi/jobs/parse endpoint
+// JobsParseRequest is used for arguments of the /v1/jobs/parse endpoint
 type JobsParseRequest struct {
 	// JobHCL is an hcl jobspec
 	JobHCL string
@@ -60,7 +60,7 @@ func (c *Client) Jobs() *Jobs {
 	return &Jobs{client: c}
 }
 
-// Parse is used to convert the HCL repesentation of a Job to JSON server side.
+// ParseHCL is used to convert the HCL repesentation of a Job to JSON server side.
 // To parse the HCL client side see package github.com/hashicorp/nomad/jobspec
 func (j *Jobs) ParseHCL(jobHCL string, canonicalize bool) (*Job, error) {
 	var job Job
@@ -147,6 +147,44 @@ func (j *Jobs) PrefixList(prefix string) ([]*JobListStub, *QueryMeta, error) {
 func (j *Jobs) Info(jobID string, q *QueryOptions) (*Job, *QueryMeta, error) {
 	var resp Job
 	qm, err := j.client.query("/v1/job/"+url.PathEscape(jobID), &resp, q)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &resp, qm, nil
+}
+
+// Scale is used to retrieve information about a particular
+// job given its unique ID.
+func (j *Jobs) Scale(jobID, group string, count *int, message string, error bool, meta map[string]interface{},
+	q *WriteOptions) (*JobRegisterResponse, *WriteMeta, error) {
+
+	var count64 *int64
+	if count != nil {
+		count64 = int64ToPtr(int64(*count))
+	}
+	req := &ScalingRequest{
+		Count: count64,
+		Target: map[string]string{
+			"Job":   jobID,
+			"Group": group,
+		},
+		Error:   error,
+		Message: message,
+		Meta:    meta,
+	}
+	var resp JobRegisterResponse
+	qm, err := j.client.write(fmt.Sprintf("/v1/job/%s/scale", url.PathEscape(jobID)), req, &resp, q)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &resp, qm, nil
+}
+
+// ScaleStatus is used to retrieve information about a particular
+// job given its unique ID.
+func (j *Jobs) ScaleStatus(jobID string, q *QueryOptions) (*JobScaleStatusResponse, *QueryMeta, error) {
+	var resp JobScaleStatusResponse
+	qm, err := j.client.query(fmt.Sprintf("/v1/job/%s/scale", url.PathEscape(jobID)), &resp, q)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -610,9 +648,11 @@ func (p *PeriodicConfig) Canonicalize() {
 // passed time.
 func (p *PeriodicConfig) Next(fromTime time.Time) (time.Time, error) {
 	if *p.SpecType == PeriodicSpecCron {
-		if e, err := cronexpr.Parse(*p.Spec); err == nil {
-			return cronParseNext(e, fromTime, *p.Spec)
+		e, err := cronexpr.Parse(*p.Spec)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed parsing cron expression %q: %v", *p.Spec, err)
 		}
+		return cronParseNext(e, fromTime, *p.Spec)
 	}
 
 	return time.Time{}, nil
@@ -632,6 +672,7 @@ func cronParseNext(e *cronexpr.Expression, fromTime time.Time, spec string) (t t
 
 	return e.Next(fromTime), nil
 }
+
 func (p *PeriodicConfig) GetLocation() (*time.Location, error) {
 	if p.TimeZone == nil || *p.TimeZone == "" {
 		return time.UTC, nil

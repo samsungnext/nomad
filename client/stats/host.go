@@ -86,7 +86,6 @@ type HostStatsCollector struct {
 // NewHostStatsCollector returns a HostStatsCollector. The allocDir is passed in
 // so that we can present the disk related statistics for the mountpoint where
 // the allocation directory lives
-// POI
 func NewHostStatsCollector(logger hclog.Logger, allocDir string, deviceStatsCollector DeviceStatsCollector) *HostStatsCollector {
 	logger = logger.Named("host_stats")
 	numCores := runtime.NumCPU()
