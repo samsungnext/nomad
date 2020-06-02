@@ -283,7 +283,7 @@
 		{"path":"github.com/hashicorp/yamux","checksumSHA1":"ldkAQ1CpiAaQ9sti0qIch+UyRsI=","revision":"7221087c3d281fda5f794e28c2ea4c6e4d5c4558","revisionTime":"2018-09-17T20:50:41Z"},
 		{"path":"github.com/hpcloud/tail/util","checksumSHA1":"0xM336Lb25URO/1W1/CtGoRygVU=","revision":"37f4271387456dd1bf82ab1ad9229f060cc45386","revisionTime":"2017-08-14T16:06:53Z"},
 		{"path":"github.com/hpcloud/tail/watch","checksumSHA1":"TP4OAv5JMtzj2TB6OQBKqauaKDc=","revision":"37f4271387456dd1bf82ab1ad9229f060cc45386","revisionTime":"2017-08-14T16:06:53Z"},
-        {"path":"github.com/iqoqo/go-sockaddr","checksumSHA1":"wxKqw7QoajybPjhWN01nwjf26Tc=","revision":"6aef75fa61a174d62e491ba395b2606a156b1b42","revisionTime":"2018-07-29T00:09:08Z"},
+        {"path":"github.com/samsungnext/go-sockaddr","checksumSHA1":"wxKqw7QoajybPjhWN01nwjf26Tc=","revision":"6aef75fa61a174d62e491ba395b2606a156b1b42","revisionTime":"2018-07-29T00:09:08Z"},
         {"path":"github.com/jmespath/go-jmespath","checksumSHA1":"3/Bhy+ua/DCv2ElMD5GzOYSGN6g=","comment":"0.2.2-2-gc01cf91","revision":"c01cf91b011868172fdcd9f41838e80c9d716264"},
 		{"path":"github.com/konsorten/go-windows-terminal-sequences","checksumSHA1":"Aulh7C5SVOA4Jzt5eHNH6197Mbk=","revision":"f55edac94c9bbba5d6182a4be46d86a2c9b5b50e","revisionTime":"2019-02-26T22:47:05Z"},
 		{"path":"github.com/kr/pretty","checksumSHA1":"eOXF2PEvYLMeD8DSzLZJWbjYzco=","revision":"cfb55aafdaf3ec08f0db22699ab822c50091b1c4","revisionTime":"2016-08-23T17:07:15Z"},
