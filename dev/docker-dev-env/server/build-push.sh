@@ -16,7 +16,7 @@ GIT_ROOT=$(git rev-parse --show-toplevel)
 if [ -z "$GIT_ROOT" ]; then
    GIT_ROOT=$(git rev-parse --show-superproject-working-tree)
 fi
-BUILD_CONTEXT=$(dirname $(pwd))
+BUILD_CONTEXT=$(pwd)
 DOCKERFILE_PATH=$(pwd)/Dockerfile
 
 
