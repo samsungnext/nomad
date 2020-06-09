@@ -16,11 +16,14 @@ GIT_ROOT=$(git rev-parse --show-toplevel)
 if [ -z "$GIT_ROOT" ]; then
    GIT_ROOT=$(git rev-parse --show-superproject-working-tree)
 fi
-BUILD_CONTEXT=${GIT_ROOT}/pkg/linux_amd64
+BUILD_CONTEXT=$(dirname $(pwd))
 DOCKERFILE_PATH=$(pwd)/Dockerfile
 
 
 # BUILD
+# Copy the compiled binary
+cp -vrf ${GIT_ROOT}/pkg/linux_amd64/nomad ${BUILD_CONTEXT}/
+
 echo "Building ${IMAGE_TAG} with commit ${COMMIT_ID}"
 COMMAND=""
 COMMAND+="DOCKER_BUILDKIT=1 docker build \
