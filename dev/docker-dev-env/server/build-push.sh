@@ -45,6 +45,7 @@ eval ${COMMAND}
 # PUSH
 echo "pushing image ${IMAGE_TAG_COMMIT}"
 docker push ${IMAGE_TAG_COMMIT}
+docker push ${IMAGE_TAG_LATEST}
 if [ ! -z ${IMAGE_TAG_ENVIRONMENT:-} ]; then
     echo "pushing image ${IMAGE_TAG_ENVIRONMENT}"
     docker push "${IMAGE_TAG_ENVIRONMENT}"
