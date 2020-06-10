@@ -48,5 +48,6 @@ RUN mkdir -p /nomad/data && \
 EXPOSE 4646 4647 4648 4648/udp
 
 ADD start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
 
 ENTRYPOINT ["/usr/local/bin/start.sh"]
